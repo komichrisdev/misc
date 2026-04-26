@@ -1,0 +1,8 @@
+interface:
+  display_name: "GitHub Project Updater"
+  short_description: "Safely commit and push project changes"
+  brand_color: "#2563EB"
+  default_prompt: "Use $github-project-updater to update GitHub after my Crypto Keeper or Plex Picker project changes."
+
+policy:
+  allow_implicit_invocation: true
