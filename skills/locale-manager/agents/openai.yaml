@@ -1,0 +1,7 @@
+interface:
+  display_name: "Locale Manager"
+  short_description: "Manage JSON .locale files safely"
+  default_prompt: "Use $locale-manager to update a .locale folder with new English keys, translations, validation metadata, a version bump, and a release zip."
+
+policy:
+  allow_implicit_invocation: true
