@@ -1,6 +1,6 @@
 ---
 name: locale-manager
-description: Manage JSON .locale localization folders. Use when Codex needs to inspect, repair, update, translate, proofread, version, validate, or zip *.locale files named with language codes such as common_en.locale or common_it.locale; add new locale keys from English text; preserve keys/placeholders; detect duplicate keys; and coordinate parallel subagents for translation and spelling/grammar validation.
+description: Manage JSON .locale localization folders. Use when Codex needs to inspect, repair, update, translate, proofread, version, validate, or zip *.locale files named with language codes such as common_en.locale or common_it.locale; add new locale keys from English text; preserve keys/placeholders; detect duplicate keys; keep validation in .validated.json sidecars; and coordinate parallel subagents for translation and spelling/grammar validation.
 ---
 
 # Locale Manager
@@ -26,7 +26,7 @@ node scripts/locale-manager.mjs inspect --dir "C:\path\to\locale-folder"
 4. Spawn cheap worker subagents in parallel by disjoint locale batches. Use `gpt-5.4-mini` unless the language content is unusually high risk. Tell workers:
    - Translate values only, never keys.
    - Preserve placeholders exactly: `%0`, `%1`, `{name}`, `\n`, HTML-like tags, currency, product names, and punctuation tokens that are part of the UI contract.
-   - Proofread only keys that are missing or stale in `.locale_Validated`, unless the user asks for `--recheck all` or specific keys.
+   - Proofread only keys that are missing or stale in the `.validated.json` sidecar, unless the user asks for `--recheck all` or specific keys.
    - Return strict JSON only.
 
 5. Merge worker output into this shape:
@@ -58,11 +58,13 @@ node scripts/locale-manager.mjs apply --dir "C:\path\to\locale-folder" --entries
 
 - Keep `.locale_Version` as the first key in every file. Add it if missing.
 - Bump the highest numeric version found by `0.1`, then write the same `vX.Y` value to every file.
-- Keep `.locale_Validated` as the last key. It stores `key: sha256(current text)` and prevents rechecking unchanged values.
-- Insert new keys near similar keys by prefix/token match; append before `.locale_Validated` if no similar key exists.
+- Do not write validation into `.locale` files. Locale files must stay flat `"x":"y"` maps and should contain no `.locale_Validated` key.
+- Store validation in one folder sidecar named `commonLocales.validated.json`. Shape: `{ "common_en.locale": { "key": "sha256(current text)" } }`.
+- If old per-locale sidecars or an old `.locale_Validated` key exist, treat them as legacy validation input, then write only `commonLocales.validated.json` on apply.
+- Insert new keys near similar keys by prefix/token match; append near the end if no similar key exists.
 - Repair only safe JSON issues: BOM, trailing commas, final newline, and consistent indentation.
 - Never auto-delete duplicate keys. Stop and ask the user.
-- Zip all `.locale` files after apply as `vX.Y_commonLocales.zip` in the locale directory.
+- Zip only `.locale` files after apply as `vX.Y_commonLocales.zip` in the locale directory. Do not include `commonLocales.validated.json` or any validation sidecar.
 
 ## Script
 
