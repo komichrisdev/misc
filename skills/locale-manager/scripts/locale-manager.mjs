@@ -131,6 +131,110 @@ function hashText(value) {
   return crypto.createHash("sha256").update(String(value)).digest("hex");
 }
 
+function parseValidationValue(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return { ...value };
+  }
+  if (typeof value !== "string" || value.trim() === "") {
+    return {};
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return { ...parsed };
+      }
+    } catch {
+      // Fall back to line parsing below.
+    }
+  }
+
+  const validation = {};
+  for (const line of value.split(/\r?\n|;/)) {
+    const separator = line.indexOf("=");
+    if (separator <= 0) {
+      continue;
+    }
+    const key = line.slice(0, separator).trim();
+    const hash = line.slice(separator + 1).trim();
+    if (key && hash) {
+      validation[key] = hash;
+    }
+  }
+  return validation;
+}
+
+function serializeValidationValue(validation) {
+  return Object.keys(validation)
+    .sort((a, b) => a.localeCompare(b))
+    .map((key) => `${key}=${validation[key]}`)
+    .join("\n");
+}
+
+function validationSidecarPath(dir) {
+  return path.join(dir, "commonLocales.validated.json");
+}
+
+function cleanValidationObject(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Validation data must be a JSON object: ${label}`);
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(([, hash]) => typeof hash === "string"),
+  );
+}
+
+function readValidationSidecar(dir) {
+  const sidecarPath = validationSidecarPath(dir);
+  if (!fs.existsSync(sidecarPath)) {
+    return {};
+  }
+  const parsed = cleanValidationObjectByFile(JSON.parse(fs.readFileSync(sidecarPath, "utf8")), sidecarPath);
+  return parsed;
+}
+
+function cleanValidationObjectByFile(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Validation sidecar must be a JSON object: ${label}`);
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, validation]) => validation && typeof validation === "object" && !Array.isArray(validation))
+      .map(([fileName, validation]) => [fileName, cleanValidationObject(validation, `${label}:${fileName}`)]),
+  );
+}
+
+function readLegacyValidation(file) {
+  const legacySidecarPath = `${file.filePath}.validated.json`;
+  const legacySidecar = fs.existsSync(legacySidecarPath)
+    ? cleanValidationObject(JSON.parse(fs.readFileSync(legacySidecarPath, "utf8")), legacySidecarPath)
+    : {};
+  return {
+    ...legacySidecar,
+    ...parseValidationValue(file.data?.[VALIDATED_KEY]),
+  };
+}
+
+function writeValidationSidecar(dir, validationByFile) {
+  const sidecarPath = validationSidecarPath(dir);
+  const clean = Object.fromEntries(
+    Object.keys(validationByFile)
+      .sort((a, b) => a.localeCompare(b))
+      .map((fileName) => [
+        fileName,
+        Object.fromEntries(
+          Object.keys(validationByFile[fileName])
+            .sort((a, b) => a.localeCompare(b))
+            .map((key) => [key, validationByFile[fileName][key]]),
+        ),
+      ]),
+  );
+  fs.writeFileSync(sidecarPath, `${JSON.stringify(clean, null, 4)}\n`, "utf8");
+  return sidecarPath;
+}
+
 function uniqueSorted(values) {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
@@ -292,14 +396,15 @@ function realKeys(data) {
   return Object.keys(data ?? {}).filter((key) => !META_KEYS.has(key));
 }
 
-function validationStatus(data, recheck) {
-  const validated = data?.[VALIDATED_KEY] && typeof data[VALIDATED_KEY] === "object" && !Array.isArray(data[VALIDATED_KEY])
-    ? data[VALIDATED_KEY]
-    : {};
-  const keys = realKeys(data);
+function validationStatus(file, validationByFile, recheck) {
+  const validated = {
+    ...(validationByFile[file.fileName] ?? {}),
+    ...readLegacyValidation(file),
+  };
+  const keys = realKeys(file.data);
   const stale = [];
   for (const key of keys) {
-    const currentHash = hashText(data[key]);
+    const currentHash = hashText(file.data[key]);
     if (recheck.all || recheck.keys.has(key) || validated[key] !== currentHash) {
       stale.push(key);
     }
@@ -316,6 +421,7 @@ function inspect(dir, recheckValue) {
   const recheck = parseRecheck(recheckValue);
   const { dir: resolvedDir, files } = readLocaleFiles(dir);
   const parsed = files.map(parseLocale);
+  const validationByFile = readValidationSidecar(resolvedDir);
   const duplicateKeys = [];
   const jsonErrors = [];
 
@@ -345,7 +451,8 @@ function inspect(dir, recheckValue) {
       version: file.data?.[VERSION_KEY] ?? null,
       firstKey: file.data ? Object.keys(file.data)[0] ?? null : null,
       repairsAvailable: file.repairs,
-      validation: file.data ? validationStatus(file.data, recheck) : null,
+      validationSidecar: validationSidecarPath(resolvedDir),
+      validation: file.data ? validationStatus(file, validationByFile, recheck) : null,
     })),
     duplicateKeys,
     jsonErrors,
@@ -414,34 +521,13 @@ function setOrderedKey(pairs, key, value) {
   pairs.splice(index, 0, { key, value });
 }
 
-function buildOrderedObject(data, nextVersionValue, touchedKeys, validatedKeys) {
-  const validation = data[VALIDATED_KEY] && typeof data[VALIDATED_KEY] === "object" && !Array.isArray(data[VALIDATED_KEY])
-    ? { ...data[VALIDATED_KEY] }
-    : {};
-
-  for (const key of touchedKeys) {
-    if (!META_KEYS.has(key) && Object.hasOwn(data, key)) {
-      validation[key] = hashText(data[key]);
-    }
-  }
-  for (const key of validatedKeys) {
-    if (!META_KEYS.has(key) && Object.hasOwn(data, key)) {
-      validation[key] = hashText(data[key]);
-    }
-  }
-
+function buildOrderedObject(data, nextVersionValue) {
   const ordered = { [VERSION_KEY]: nextVersionValue };
   for (const key of Object.keys(data)) {
     if (!META_KEYS.has(key)) {
       ordered[key] = data[key];
     }
   }
-  ordered[VALIDATED_KEY] = Object.fromEntries(
-    Object.keys(validation)
-      .filter((key) => Object.hasOwn(data, key) && !META_KEYS.has(key))
-      .sort((a, b) => a.localeCompare(b))
-      .map((key) => [key, validation[key]]),
-  );
   return ordered;
 }
 
@@ -488,6 +574,7 @@ function apply(dir, entriesArg, agentOutputArg, recheckValue) {
   const agentOutput = normalizeAgentOutput(readJsonArg(agentOutputArg, "--agent-output"));
   const { dir: resolvedDir, files } = readLocaleFiles(dir);
   const parsed = files.map(parseLocale);
+  const validationByFile = readValidationSidecar(resolvedDir);
   const duplicateKeys = parsed.flatMap((file) => file.duplicates.map((duplicate) => ({
     file: file.fileName,
     locale: file.locale,
@@ -525,6 +612,10 @@ function apply(dir, entriesArg, agentOutputArg, recheckValue) {
 
   for (const file of parsed) {
     const data = { ...file.data };
+    const validation = {
+      ...(validationByFile[file.fileName] ?? {}),
+      ...readLegacyValidation(file),
+    };
     const bodyPairs = Object.keys(data)
       .filter((key) => !META_KEYS.has(key))
       .map((key) => ({ key, value: data[key] }));
@@ -578,11 +669,30 @@ function apply(dir, entriesArg, agentOutputArg, recheckValue) {
     for (const pair of bodyPairs) {
       nextData[pair.key] = pair.value;
     }
-    const ordered = buildOrderedObject(nextData, nextVersionValue, touched, validated);
+    for (const key of touched) {
+      if (!META_KEYS.has(key) && Object.hasOwn(nextData, key)) {
+        validation[key] = hashText(nextData[key]);
+      }
+    }
+    for (const key of validated) {
+      if (!META_KEYS.has(key) && Object.hasOwn(nextData, key)) {
+        validation[key] = hashText(nextData[key]);
+      }
+    }
+    const cleanValidation = Object.fromEntries(
+      Object.keys(validation)
+        .filter((key) => Object.hasOwn(nextData, key) && !META_KEYS.has(key))
+        .sort((a, b) => a.localeCompare(b))
+        .map((key) => [key, validation[key]]),
+    );
+    const ordered = buildOrderedObject(nextData, nextVersionValue);
     fs.writeFileSync(file.filePath, `${JSON.stringify(ordered, null, 4)}\n`, "utf8");
+    validationByFile[file.fileName] = cleanValidation;
     changedFiles.push(file.fileName);
     touchedByLocale[file.locale] = uniqueSorted([...touched]);
   }
+
+  const sidecarPath = writeValidationSidecar(resolvedDir, validationByFile);
 
   const zipPath = path.join(resolvedDir, `${nextVersionValue}_commonLocales.zip`);
   writeZip(zipPath, parsed.map((file) => ({
@@ -595,6 +705,7 @@ function apply(dir, entriesArg, agentOutputArg, recheckValue) {
     dir: resolvedDir,
     version: nextVersionValue,
     changedFiles,
+    validationSidecar: sidecarPath,
     touchedByLocale,
     zip: zipPath,
     warnings: agentOutput.warnings,
