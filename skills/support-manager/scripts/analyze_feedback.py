@@ -20,6 +20,7 @@ DEFAULT_DOWNLOADS = Path.home() / "Downloads"
 DEFAULT_HISTORY_ROOT = Path(
     r"C:\Users\chris\Qublix Games Dropbox\Chris K\CodexSkillBundles\Support"
 )
+DEFAULT_GITHUB_LOG_ROOT = Path(r"C:\Users\chris\Documents\Playground\misc\support-checks")
 SCHEMA_VERSION = 1
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 TAG_RE = re.compile(r"\[([^\[\]]{1,80})\]")
@@ -58,7 +59,9 @@ def parse_timestamp(value: str | None) -> datetime | None:
 
 
 def read_csv_rows(
-    path: Path, stop_at_or_before_date: date | None = None
+    path: Path,
+    stop_at_or_before_timestamp: datetime | None = None,
+    stop_at_or_before_date: date | None = None,
 ) -> tuple[list[dict[str, str]], dict[str, Any]]:
     encodings = ("utf-8-sig", "utf-8", "cp1252")
     last_error: Exception | None = None
@@ -72,7 +75,19 @@ def read_csv_rows(
                     rows_seen += 1
                     dt = parse_timestamp(row.get("Timestamp"))
                     if (
-                        stop_at_or_before_date is not None
+                        stop_at_or_before_timestamp is not None
+                        and dt is not None
+                        and dt <= stop_at_or_before_timestamp
+                    ):
+                        stopped_at = {
+                            "row_number": rows_seen,
+                            "date": dt.date().isoformat(),
+                            "timestamp_utc": dt.isoformat(timespec="seconds").replace("+00:00", "Z"),
+                        }
+                        break
+                    if (
+                        stop_at_or_before_timestamp is None
+                        and stop_at_or_before_date is not None
                         and dt is not None
                         and dt.date() <= stop_at_or_before_date
                     ):
@@ -87,6 +102,9 @@ def read_csv_rows(
                 "encoding": encoding,
                 "rows_seen": rows_seen,
                 "rows_processed": len(rows),
+                "last_assessed_at_before_run": stop_at_or_before_timestamp.isoformat(timespec="seconds").replace("+00:00", "Z")
+                if stop_at_or_before_timestamp
+                else None,
                 "last_assessed_date_before_run": stop_at_or_before_date.isoformat()
                 if stop_at_or_before_date
                 else None,
@@ -199,6 +217,90 @@ def last_assessed_day(history: dict[str, Any]) -> date | None:
             if parsed:
                 candidates.append(parsed)
     return max(candidates) if candidates else None
+
+
+def last_assessed_timestamp(history: dict[str, Any]) -> datetime | None:
+    candidates: list[datetime] = []
+    for key in ("last_assessed_at_utc", "last_assessed_timestamp_utc", "analyzed_until_utc"):
+        parsed = parse_timestamp(history.get(key))
+        if parsed:
+            candidates.append(parsed)
+    for run in history.get("runs", []):
+        for key in ("last_assessed_at_utc", "last_assessed_timestamp_utc", "analyzed_until_utc"):
+            parsed = parse_timestamp(run.get(key))
+            if parsed:
+                candidates.append(parsed)
+        end = parse_timestamp((run.get("date_range") or {}).get("end_utc"))
+        if end:
+            candidates.append(end)
+    return max(candidates) if candidates else None
+
+
+def run_keys(run: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    for key in ("run_id", "dataset_hash"):
+        value = run.get(key)
+        if value:
+            keys.append(f"{key}:{value}")
+    if not keys:
+        keys.append(":".join(
+            str(run.get(key) or "")
+            for key in ("csv_name", "last_assessed_date", "total_messages", "analyzed_at_utc")
+        ))
+    return keys
+
+
+def merge_runs(*run_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in run_groups:
+        for run in group:
+            keys = run_keys(run)
+            if any(key in seen for key in keys):
+                continue
+            seen.update(keys)
+            merged.append(run)
+    return merged
+
+
+def load_github_log_runs(root: Path | None, slug: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if root is None:
+        return [], {"available": False, "reason": "No GitHub log root was configured."}
+    game_dir = root / slug
+    status: dict[str, Any] = {
+        "available": game_dir.exists(),
+        "root": str(root),
+        "game_log_dir": str(game_dir),
+        "runs_found": 0,
+        "errors": [],
+    }
+    if not game_dir.exists():
+        status["reason"] = "No GitHub log directory exists for this game."
+        return [], status
+    runs: list[dict[str, Any]] = []
+    for path in sorted(game_dir.glob("*.json")):
+        if path.name.lower() == "index.json":
+            continue
+        try:
+            with path.open("r", encoding="utf-8-sig") as handle:
+                payload = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            status["errors"].append({"path": str(path), "error": str(exc)})
+            continue
+        run = payload.get("run_record") if isinstance(payload, dict) else None
+        if not isinstance(run, dict):
+            run = payload if isinstance(payload, dict) and payload.get("total_messages") is not None else None
+        if not isinstance(run, dict):
+            continue
+        run = dict(run)
+        run["github_log_path"] = str(path)
+        runs.append(run)
+    status["runs_found"] = len(runs)
+    latest = last_assessed_day({"runs": runs})
+    latest_timestamp = last_assessed_timestamp({"runs": runs})
+    status["latest_last_assessed_date"] = latest.isoformat() if latest else None
+    status["latest_last_assessed_at_utc"] = latest_timestamp.isoformat(timespec="seconds").replace("+00:00", "Z") if latest_timestamp else None
+    return runs, status
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -435,6 +537,68 @@ def example_rows(enriched_rows: list[dict[str, Any]], tags: list[str], limit: in
     return {tag: rows for tag, rows in examples.items() if rows}
 
 
+def clean_feedback_text(text: str | None, tag: str | None = None, limit: int = 220) -> str:
+    raw = re.sub(r"\s+", " ", text or "").strip()
+    if tag:
+        raw = re.sub(rf"^\[{re.escape(tag)}\]\s*", "", raw, flags=re.IGNORECASE)
+    raw = TAG_RE.sub("", raw).strip()
+    if not raw:
+        return f"[{tag}] tag only; no written detail." if tag else "No written detail."
+    return raw[: limit - 3].rstrip() + "..." if len(raw) > limit else raw
+
+
+def build_complaint_summary(enriched_rows: list[dict[str, Any]], limit_tags: int = 5, examples_per_tag: int = 3) -> dict[str, Any]:
+    tag_counts: Counter[str] = Counter()
+    rows_by_tag: dict[str, list[dict[str, Any]]] = {}
+    for row in enriched_rows:
+        for tag in row.get("message_types") or ["untagged"]:
+            tag_counts[tag] += 1
+            rows_by_tag.setdefault(tag, []).append(row)
+    themes: list[dict[str, Any]] = []
+    for tag, count in tag_counts.most_common(limit_tags):
+        tag_rows = rows_by_tag.get(tag, [])
+        players = Counter(str(row.get("player_id") or "unknown") for row in tag_rows)
+        countries = Counter(str(row.get("country") or "unknown") for row in tag_rows)
+        locales = Counter(str(row.get("locale") or "unknown") for row in tag_rows)
+        platforms = Counter(str(row.get("platform") or "unknown") for row in tag_rows)
+        samples: list[str] = []
+        seen_samples: set[str] = set()
+        for row in tag_rows:
+            sample = clean_feedback_text(row.get("feedback_text"), tag)
+            if sample in seen_samples:
+                continue
+            seen_samples.add(sample)
+            samples.append(sample)
+            if len(samples) >= examples_per_tag:
+                break
+        repeated_players = {
+            player: value
+            for player, value in players.most_common(5)
+            if player != "unknown" and value > 1
+        }
+        theme = {
+            "message_type": tag,
+            "count": int(count),
+            "unique_players": len([player for player in players if player != "unknown"]),
+            "top_countries": counter_top(countries, limit=5),
+            "top_locales": counter_top(locales, limit=5),
+            "top_platforms": counter_top(platforms, limit=5),
+            "repeated_players": repeated_players,
+            "representative_complaints": samples,
+        }
+        themes.append(theme)
+    plain_parts: list[str] = []
+    for theme in themes[:3]:
+        sample_text = theme["representative_complaints"][0] if theme["representative_complaints"] else "no detail"
+        plain_parts.append(f"{theme['count']} [{theme['message_type']}] ({sample_text})")
+    return {
+        "total_complaints": len(enriched_rows),
+        "theme_count": len(themes),
+        "themes": themes,
+        "plain_summary": "; ".join(plain_parts) if plain_parts else "No new complaints since last support check.",
+    }
+
+
 def build_trend_note(summary: dict[str, Any], spikes: list[dict[str, Any]], history_runs: list[dict[str, Any]]) -> str:
     top_types = list((summary.get("message_types") or {}).items())[:3]
     type_text = ", ".join(f"[{tag}] {count}" for tag, count in top_types) if top_types else "no tags"
@@ -444,13 +608,67 @@ def build_trend_note(summary: dict[str, Any], spikes: list[dict[str, Any]], hist
     return f"{summary['total_messages']} messages; {compared}; {type_text}; {spike_text}."
 
 
+def rel_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root)).replace("\\", "/")
+    except ValueError:
+        return str(path)
+
+
+def write_github_log(root: Path, slug: str, run_record: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    run_id = run_record.get("run_id") or "unknown-run"
+    analyzed_at = str(run_record.get("analyzed_at_utc") or utc_now())
+    safe_timestamp = re.sub(r"[^0-9A-Za-z]+", "", analyzed_at.replace("Z", "Z"))
+    game_dir = root / slug
+    log_path = game_dir / f"{safe_timestamp}-{run_id}.json"
+    index_path = game_dir / "index.json"
+    atomic_write_json(log_path, payload)
+    try:
+        with index_path.open("r", encoding="utf-8-sig") as handle:
+            index = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        index = {"schema_version": SCHEMA_VERSION, "slug": slug, "logs": []}
+    logs = [
+        item for item in index.get("logs", [])
+        if item.get("run_id") != run_id and item.get("dataset_hash") != run_record.get("dataset_hash")
+    ]
+    logs.append({
+        "run_id": run_id,
+        "dataset_hash": run_record.get("dataset_hash"),
+        "analyzed_at_utc": run_record.get("analyzed_at_utc"),
+        "last_assessed_at_utc": run_record.get("last_assessed_at_utc"),
+        "last_assessed_date": run_record.get("last_assessed_date"),
+        "total_messages": run_record.get("total_messages"),
+        "spike_detected": run_record.get("spike_detected"),
+        "path": rel_path(log_path, root),
+    })
+    logs = sorted(logs, key=lambda item: str(item.get("analyzed_at_utc") or ""))
+    index.update({
+        "schema_version": SCHEMA_VERSION,
+        "slug": slug,
+        "updated_at_utc": utc_now(),
+        "latest_log_path": rel_path(log_path, root),
+        "logs": logs,
+    })
+    atomic_write_json(index_path, index)
+    return {
+        "written": True,
+        "root": str(root),
+        "log_path": str(log_path),
+        "index_path": str(index_path),
+        "status": "written_local_commit_and_push_required",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--csv", dest="csv_path", help="Feedback CSV path. If omitted, Downloads is checked.")
     parser.add_argument("--game", help="Human game name.")
     parser.add_argument("--downloads", default=str(DEFAULT_DOWNLOADS), help="Downloads folder to search.")
     parser.add_argument("--history-root", default=str(DEFAULT_HISTORY_ROOT), help="Support history root folder.")
+    parser.add_argument("--github-log-root", default=str(DEFAULT_GITHUB_LOG_ROOT), help="Local GitHub support-check log root to read.")
     parser.add_argument("--update-history", action="store_true", help="Append this analysis to game history.")
+    parser.add_argument("--write-github-log", action="store_true", help="Write this support check under --github-log-root for commit/push.")
     parser.add_argument("--limit-examples", type=int, default=5, help="Example rows per tag.")
     args = parser.parse_args()
     downloads = Path(args.downloads).expanduser()
@@ -465,25 +683,45 @@ def main() -> None:
     history_root = Path(args.history_root).expanduser()
     history_path = history_root / f"{slug}.json"
     history = load_history(history_path, game, slug)
-    cutoff_day = last_assessed_day(history)
-    rows, processing_window = read_csv_rows(csv_path, stop_at_or_before_date=cutoff_day)
+    github_log_root = Path(args.github_log_root).expanduser() if args.github_log_root else None
+    github_runs, github_log_status = load_github_log_runs(github_log_root, slug)
+    known_runs = merge_runs(history.get("runs", []), github_runs)
+    combined_history = dict(history)
+    combined_history["runs"] = known_runs
+    cutoff_day = last_assessed_day(combined_history)
+    cutoff_timestamp = last_assessed_timestamp(combined_history)
+    rows, processing_window = read_csv_rows(
+        csv_path,
+        stop_at_or_before_timestamp=cutoff_timestamp,
+        stop_at_or_before_date=cutoff_day,
+    )
     summary = summarize_rows(rows)
     dataset_hash = sha256_file(csv_path)
-    prior_runs = [run for run in history.get("runs", []) if run.get("dataset_hash") != dataset_hash]
-    duplicate_dataset = len(prior_runs) != len(history.get("runs", []))
+    prior_runs = [run for run in known_runs if run.get("dataset_hash") != dataset_hash]
+    duplicate_dataset = len(prior_runs) != len(known_runs)
     comparisons = build_in_csv_comparisons(summary)
     spikes = detect_spikes(summary, prior_runs, comparisons=comparisons)
     flagged_tags = [spike["message_type"] for spike in spikes if spike.get("kind") == "message_type"]
     top_tags = [tag for tag in (summary.get("message_types") or {}).keys() if tag != "untagged"]
     tags_for_examples = list(dict.fromkeys(flagged_tags + top_tags[:3]))
-    examples = example_rows(summary.pop("enriched_rows"), tags_for_examples, args.limit_examples)
+    enriched_rows = summary.pop("enriched_rows")
+    complaints_since_last_check = build_complaint_summary(enriched_rows)
+    examples = example_rows(enriched_rows, tags_for_examples, args.limit_examples)
     trend_note = build_trend_note(summary, spikes, prior_runs)
     if summary["total_messages"] == 0 and cutoff_day is not None:
         trend_note = f"0 new messages after last assessed day {cutoff_day.isoformat()}; no spikes flagged."
     processed_dates = [parse_date_key(date_key) for date_key in (summary.get("daily_counts") or {}).keys() if date_key != "unknown"]
     processed_dates = [value for value in processed_dates if value is not None]
-    last_assessed_after_run = max(processed_dates) if processed_dates else cutoff_day
-    run_id = hashlib.sha1(f"{dataset_hash}:{game}:{summary['total_messages']}:{cutoff_day}".encode("utf-8")).hexdigest()[:16]
+    last_processed_at = parse_timestamp((summary.get("date_range") or {}).get("end_utc"))
+    last_assessed_after_run_at = last_processed_at or cutoff_timestamp
+    last_assessed_after_run = (
+        last_assessed_after_run_at.date()
+        if last_assessed_after_run_at is not None
+        else (max(processed_dates) if processed_dates else cutoff_day)
+    )
+    run_id = hashlib.sha1(
+        f"{dataset_hash}:{game}:{summary['total_messages']}:{cutoff_timestamp or cutoff_day}".encode("utf-8")
+    ).hexdigest()[:16]
     run_record = {
         "run_id": run_id,
         "dataset_hash": dataset_hash,
@@ -491,6 +729,9 @@ def main() -> None:
         "csv_path": str(csv_path),
         "analyzed_at_utc": utc_now(),
         "processing_window": processing_window,
+        "last_assessed_at_utc": last_assessed_after_run_at.isoformat(timespec="seconds").replace("+00:00", "Z")
+        if last_assessed_after_run_at
+        else None,
         "last_assessed_date": last_assessed_after_run.isoformat() if last_assessed_after_run else None,
         "date_range": summary["date_range"],
         "total_messages": summary["total_messages"],
@@ -504,6 +745,7 @@ def main() -> None:
         "top_app_versions": summary["top_app_versions"],
         "top_hosted_asset_versions": summary["top_hosted_asset_versions"],
         "comparisons": comparisons,
+        "complaints_since_last_check": complaints_since_last_check,
         "spike_detected": bool(spikes),
         "spike_labels": [spike["label"] for spike in spikes],
         "trend_note": trend_note,
@@ -522,12 +764,14 @@ def main() -> None:
             history["slug"] = slug
             if last_assessed_after_run is not None:
                 history["last_assessed_date"] = last_assessed_after_run.isoformat()
+            if last_assessed_after_run_at is not None:
+                history["last_assessed_at_utc"] = last_assessed_after_run_at.isoformat(timespec="seconds").replace("+00:00", "Z")
             history.setdefault("runs", []).append(run_record)
             history.setdefault("notes", []).append({"at_utc": now, "run_id": run_id, "note": trend_note, "spike_detected": bool(spikes), "spike_labels": [spike["label"] for spike in spikes]})
             atomic_write_json(history_path, history)
             history_written = True
             history_write_status = "appended"
-    json_exit({
+    output = {
         "game": game,
         "csv_path": str(csv_path),
         "history_path": str(history_path),
@@ -535,14 +779,25 @@ def main() -> None:
         "history_write_status": history_write_status,
         "duplicate_dataset": duplicate_dataset,
         "historical_runs_compared": len(prior_runs),
+        "github_log_status": github_log_status,
+        "github_log_write_status": {"written": False, "status": "not_requested"},
         "processing_window": processing_window,
         "spike_detected": bool(spikes),
         "spikes": spikes,
         "comparisons": comparisons,
+        "complaints_since_last_check": complaints_since_last_check,
         "summary": summary,
         "trend_note": trend_note,
         "example_rows": examples,
-    })
+        "run_record": run_record,
+    }
+    if args.write_github_log:
+        if github_log_root is None:
+            output["github_log_write_status"] = {"written": False, "status": "no_github_log_root_configured"}
+        else:
+            output["github_log_write_status"] = write_github_log(github_log_root, slug, run_record, output)
+            atomic_write_json(Path(output["github_log_write_status"]["log_path"]), output)
+    json_exit(output)
 
 
 if __name__ == "__main__":

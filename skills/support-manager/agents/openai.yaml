@@ -1,4 +1,4 @@
 interface:
   display_name: "Support Manager"
-  short_description: "Analyze game feedback spikes and trends"
-  default_prompt: "Use $support-manager to analyze Facebook Instant Game feedback and update support history."
+  short_description: "Analyze game feedback complaints, spikes, and trends"
+  default_prompt: "Use $support-manager to analyze Facebook Instant Game feedback, summarize complaints, update support history, and log the check to GitHub."

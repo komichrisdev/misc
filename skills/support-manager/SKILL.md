@@ -20,10 +20,12 @@ description: Analyze exported Facebook Instant Game feedback CSVs for support tr
    - Use a sanitized slug only for file names.
 
 3. Run the cheap scan first.
-   - Use a cheap subagent/model when available, such as `gpt-5.4-mini`, for the initial CSV summary, spike detection, and support history update. Do not do the first-pass assessment in the main thinking model unless subagents/model selection are unavailable.
+   - Default to a cheap subagent/model, such as `gpt-5.4-mini`, for the initial CSV summary, complaint summary, spike detection, history update, and GitHub log write. The main agent coordinates and reports.
+   - Do not use the strongest/full-power model for first-pass assessment. Use full power only when spikes are flagged or the user asks for deeper inspection.
    - If subagents or model selection are unavailable, run the helper script locally and keep the first-pass analysis concise.
-   - Use `scripts/analyze_feedback.py` to parse the CSV, extract bracket tags like `[loading_issues]`, compare against game history, and update the game history file.
-   - Do not review/process the whole CSV when game history already has a `last_assessed_date`. Process rows from the top of the export only until the first row on or before the last assessed day, then stop.
+   - Before the helper runs, check GitHub logs first. Pull or inspect `C:\Users\chris\Documents\Playground\misc\support-checks` from `komichrisdev/misc` when available, then pass it with `--github-log-root`.
+   - Use `scripts/analyze_feedback.py` to parse the CSV, extract bracket tags like `[loading_issues]`, summarize complaints sent since the last support check, compare against game history/GitHub logs, update the game history file, and write a support-check log.
+   - Do not review/process the whole CSV when history already has a `last_assessed_at_utc` or `last_assessed_date`. Process rows from the top of the export only until the first row on or before that timestamp/date, then stop.
    - Even on the first history run, use earlier rows in the same CSV as baseline data. Compare the latest week so far against prior same weekdays and prior week-to-date totals.
 
 4. Escalate only on spikes.
@@ -34,6 +36,8 @@ description: Analyze exported Facebook Instant Game feedback CSVs for support tr
 5. Report outcome.
    - If spikes are flagged, report likely issue, evidence, affected groups, and suggested engineering/support checks.
    - If no spikes are flagged, produce a concise trend report: messages received, current weekday comparison, top message types, notable country/locale/platform patterns, and history note.
+   - Always include the complaint summary for messages sent since the last support check.
+   - After the check, commit and push the generated support-check log to GitHub. If the push cannot run, report the local log path and exact status.
 
 ## History
 
@@ -43,12 +47,22 @@ Use this history root by default:
 
 Keep one JSON file per game. Do not mix games. Do not overwrite manual notes or unrelated fields. The helper script preserves existing history, stores `last_assessed_date`, and avoids appending the same CSV twice by dataset hash.
 
+## GitHub Logs
+
+Use this GitHub log root by default:
+
+`C:\Users\chris\Documents\Playground\misc\support-checks`
+
+Before each check, refresh or inspect the `komichrisdev/misc` clone when available. The helper reads prior logs from `support-checks\<game-slug>\*.json` and treats them as remote support history for cutoff and comparisons.
+
+After each check, run the helper with `--write-github-log`; then commit and push the changed files under `support-checks`. Do not put support logs in the skill folder itself.
+
 ## Helper Script
 
 Run with the bundled Python executable when normal `python` is unavailable:
 
 ```powershell
-& "C:\Users\chris\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" "C:\Users\chris\.codex\skills\support-manager\scripts\analyze_feedback.py" --csv "C:\Users\chris\Downloads\feedback.csv" --game "Game Name" --update-history
+& "C:\Users\chris\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" "C:\Users\chris\.codex\skills\support-manager\scripts\analyze_feedback.py" --csv "C:\Users\chris\Downloads\feedback.csv" --game "Game Name" --update-history --github-log-root "C:\Users\chris\Documents\Playground\misc\support-checks" --write-github-log
 ```
 
 If no CSV path is provided, omit `--csv`; the script applies the Downloads rule and returns structured `needs_input` JSON when it must ask the user.
@@ -58,9 +72,11 @@ Important options:
 - `--game`: required unless the caller wants the script to return `needs_input: game_name`.
 - `--history-root`: override the default support history folder.
 - `--update-history`: append the analyzed run and trend note to the game history.
+- `--github-log-root`: read prior GitHub support-check logs from a local clone.
+- `--write-github-log`: write the current structured check log under the GitHub log root for commit/push.
 - `--limit-examples`: control how many example rows are returned for flagged/top tags.
 
-When history exists, the helper returns `processing_window` with `rows_seen`, `rows_processed`, `last_assessed_date_before_run`, and whether it stopped at the last assessed day. If no new rows exist after that day, report that clearly and do not append an empty run.
+When history exists, the helper returns `processing_window` with `rows_seen`, `rows_processed`, `last_assessed_at_before_run`, `last_assessed_date_before_run`, and whether it stopped at the last assessed cutoff. If no new rows exist after that cutoff, report that clearly and do not append an empty run.
 
 The helper always returns `comparisons` when dated rows exist. Use this for weekday and weekly comparisons even when the game has no prior saved history.
 
@@ -72,9 +88,11 @@ Keep reports concise. Include:
 - date range and total messages
 - processing window: rows processed and last assessed day cutoff
 - spike status
+- complaints sent since last support check: top themes, counts, representative complaint snippets, and repeated-player/locale/platform patterns
 - weekday comparison against history when available
 - same-CSV weekday and week-to-date comparison when saved history is not enough
 - top message types/tags
 - top affected locales/countries/platforms
 - history write status
+- GitHub log read/write status and push status
 - if escalated, findings with evidence and next checks
