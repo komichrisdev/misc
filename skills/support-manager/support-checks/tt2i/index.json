@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "slug": "tt2i",
+  "updated_at_utc": "2026-05-05T13:37:58Z",
+  "latest_log_path": "support-checks/tt2i/20260505T133758Z-6493b07c7b857767.json",
+  "logs": [
+    {
+      "run_id": "6493b07c7b857767",
+      "dataset_hash": "30d3dd16c60ff18f396ee59e363bbbb4eef883cd972248a58aa601a0cf3102b7",
+      "analyzed_at_utc": "2026-05-05T13:37:58Z",
+      "last_assessed_at_utc": "2026-05-05T03:59:15Z",
+      "last_assessed_date": "2026-05-05",
+      "total_messages": 4,
+      "spike_detected": false,
+      "path": "support-checks/tt2i/20260505T133758Z-6493b07c7b857767.json"
+    }
+  ]
+}
