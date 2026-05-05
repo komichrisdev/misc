@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "game": "TT2i",
+  "slug": "tt2i",
+  "run_record": {
+    "run_id": "6493b07c7b857767",
+    "dataset_hash": "30d3dd16c60ff18f396ee59e363bbbb4eef883cd972248a58aa601a0cf3102b7",
+    "csv_name": "feedback.csv",
+    "csv_path": "C:\\Users\\chris\\Downloads\\feedback.csv",
+    "analyzed_at_utc": "2026-05-05T13:37:58Z",
+    "last_assessed_at_utc": "2026-05-05T03:59:15Z",
+    "last_assessed_date": "2026-05-05",
+    "processing_window": {
+      "encoding": "utf-8-sig",
+      "last_assessed_at_before_run": "2026-05-04T13:24:12Z",
+      "last_assessed_date_before_run": "2026-05-04",
+      "rows_processed": 4,
+      "rows_seen": 5,
+      "stopped_at_last_assessed_day": true,
+      "stop_row": {
+        "row_number": 5,
+        "date": "2026-05-04",
+        "timestamp_utc": "2026-05-04T13:24:12Z"
+      }
+    },
+    "date_range": {
+      "start_utc": "2026-05-05T00:47:13Z",
+      "end_utc": "2026-05-05T03:59:15Z"
+    },
+    "total_messages": 4,
+    "unique_players": 4,
+    "daily_counts": {
+      "2026-05-05": 4
+    },
+    "weekday_counts": {
+      "Monday": 0,
+      "Tuesday": 4,
+      "Wednesday": 0,
+      "Thursday": 0,
+      "Friday": 0,
+      "Saturday": 0,
+      "Sunday": 0
+    },
+    "message_types": {
+      "other": 2,
+      "audio_visual_issues": 1,
+      "too_many_notifications": 1
+    },
+    "top_countries": {
+      "FR": 2,
+      "BG": 1,
+      "LA": 1
+    },
+    "top_locales": {
+      "fr_FR": 2,
+      "bg_BG": 1,
+      "es_LA": 1
+    },
+    "top_platforms": {
+      "WEB": 4
+    },
+    "top_app_versions": {
+      "unknown": 4
+    },
+    "top_hosted_asset_versions": {
+      "1104": 4
+    },
+    "comparisons": {
+      "available": true,
+      "current_week_start": "2026-05-04",
+      "latest_day": "2026-05-05",
+      "current_week_days_elapsed": 2,
+      "current_week_total": 4,
+      "weekday_compare": {
+        "2026-05-05": {
+          "weekday": "Tuesday",
+          "count": 4,
+          "prior_average": null,
+          "sample_days": 0,
+          "delta_vs_average": null
+        }
+      },
+      "weekly_compare": {
+        "prior_complete_week_average": null,
+        "prior_complete_week_samples": 0,
+        "prior_same_elapsed_average": null,
+        "prior_same_elapsed_samples": 0,
+        "delta_vs_same_elapsed_average": null
+      }
+    },
+    "complaints_since_last_check": {
+      "total_complaints": 4,
+      "theme_count": 3,
+      "plain_summary": "2 [other] (Hi ! I am not getting stars in the competition for the champions, this is the first time. I cannot get my furniture and I think there is a mistake...); 1 [audio_visual_issues] (PORQUE BLOQUEAN EL JUEGO NO SE PUEDE SEGUIR PASA SEGUIDO....); 1 [too_many_notifications] (50 fois la meme publicite pour des mutuelles et le jeu qui beugue sans arret ne donne pas envie de jouer)",
+      "themes": [
+        {
+          "message_type": "other",
+          "count": 2,
+          "unique_players": 2,
+          "top_countries": {
+            "BG": 1,
+            "FR": 1
+          },
+          "top_locales": {
+            "bg_BG": 1,
+            "fr_FR": 1
+          },
+          "top_platforms": {
+            "WEB": 2
+          },
+          "repeated_players": {},
+          "representative_complaints": [
+            "Hi ! I am not getting stars in the competition for the champions, this is the first time. I cannot get my furniture and I think there is a mistake...",
+            "impossible d'avancer au niveau465 bloque depuis 15 jours GROS POBLEMES"
+          ]
+        },
+        {
+          "message_type": "audio_visual_issues",
+          "count": 1,
+          "unique_players": 1,
+          "top_countries": {
+            "LA": 1
+          },
+          "top_locales": {
+            "es_LA": 1
+          },
+          "top_platforms": {
+            "WEB": 1
+          },
+          "repeated_players": {},
+          "representative_complaints": [
+            "PORQUE BLOQUEAN EL JUEGO NO SE PUEDE SEGUIR PASA SEGUIDO...."
+          ]
+        },
+        {
+          "message_type": "too_many_notifications",
+          "count": 1,
+          "unique_players": 1,
+          "top_countries": {
+            "FR": 1
+          },
+          "top_locales": {
+            "fr_FR": 1
+          },
+          "top_platforms": {
+            "WEB": 1
+          },
+          "repeated_players": {},
+          "representative_complaints": [
+            "50 fois la meme publicite pour des mutuelles et le jeu qui beugue sans arret ne donne pas envie de jouer"
+          ]
+        }
+      ]
+    },
+    "spike_detected": false,
+    "spike_labels": [],
+    "trend_note": "4 messages; historical run avg 401.0; [other] 2, [audio_visual_issues] 1, [too_many_notifications] 1; no spikes flagged."
+  }
+}
