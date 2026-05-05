@@ -23,7 +23,7 @@ description: Analyze exported Facebook Instant Game feedback CSVs for support tr
    - Default to a cheap subagent/model, such as `gpt-5.4-mini`, for the initial CSV summary, complaint summary, spike detection, history update, and GitHub log write. The main agent coordinates and reports.
    - Do not use the strongest/full-power model for first-pass assessment. Use full power only when spikes are flagged or the user asks for deeper inspection.
    - If subagents or model selection are unavailable, run the helper script locally and keep the first-pass analysis concise.
-   - Before the helper runs, check GitHub logs first. Pull or inspect `C:\Users\chris\Documents\Playground\misc\support-checks` from `komichrisdev/misc` when available, then pass it with `--github-log-root`.
+   - Before the helper runs, check GitHub logs first. Pull or inspect `C:\Users\chris\Documents\Playground\misc\skills\support-manager\support-checks` from `komichrisdev/misc` when available, then pass it with `--github-log-root`.
    - Use `scripts/analyze_feedback.py` to parse the CSV, extract bracket tags like `[loading_issues]`, summarize complaints sent since the last support check, compare against game history/GitHub logs, update the game history file, and write a support-check log.
    - Do not review/process the whole CSV when history already has a `last_assessed_at_utc` or `last_assessed_date`. Process rows from the top of the export only until the first row on or before that timestamp/date, then stop.
    - Even on the first history run, use earlier rows in the same CSV as baseline data. Compare the latest week so far against prior same weekdays and prior week-to-date totals.
@@ -51,18 +51,18 @@ Keep one JSON file per game. Do not mix games. Do not overwrite manual notes or 
 
 Use this GitHub log root by default:
 
-`C:\Users\chris\Documents\Playground\misc\support-checks`
+`C:\Users\chris\Documents\Playground\misc\skills\support-manager\support-checks`
 
-Before each check, refresh or inspect the `komichrisdev/misc` clone when available. The helper reads prior logs from `support-checks\<game-slug>\*.json` and treats them as remote support history for cutoff and comparisons.
+Before each check, refresh or inspect the `komichrisdev/misc` clone when available. The helper reads prior logs from `skills\support-manager\support-checks\<game-slug>\*.json` and treats them as remote support history for cutoff and comparisons.
 
-After each check, run the helper with `--write-github-log`; then commit and push the changed files under `support-checks`. Do not put support logs in the skill folder itself.
+After each check, run the helper with `--write-github-log`; then commit and push the changed files under `skills/support-manager/support-checks`.
 
 ## Helper Script
 
 Run with the bundled Python executable when normal `python` is unavailable:
 
 ```powershell
-& "C:\Users\chris\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" "C:\Users\chris\.codex\skills\support-manager\scripts\analyze_feedback.py" --csv "C:\Users\chris\Downloads\feedback.csv" --game "Game Name" --update-history --github-log-root "C:\Users\chris\Documents\Playground\misc\support-checks" --write-github-log
+& "C:\Users\chris\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe" "C:\Users\chris\.codex\skills\support-manager\scripts\analyze_feedback.py" --csv "C:\Users\chris\Downloads\feedback.csv" --game "Game Name" --update-history --github-log-root "C:\Users\chris\Documents\Playground\misc\skills\support-manager\support-checks" --write-github-log
 ```
 
 If no CSV path is provided, omit `--csv`; the script applies the Downloads rule and returns structured `needs_input` JSON when it must ask the user.
