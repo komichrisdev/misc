@@ -1,0 +1,153 @@
+{
+  "comparisons": {
+    "available": false,
+    "reason": "No dated rows were available for in-CSV comparison."
+  },
+  "complaints_since_last_check": {
+    "plain_summary": "No new complaints since last support check.",
+    "theme_count": 0,
+    "themes": [],
+    "total_complaints": 0
+  },
+  "content_escalation_recommended": false,
+  "csv_path": "C:\\Users\\chris\\Downloads\\feedback.csv",
+  "duplicate_dataset": true,
+  "example_rows": {},
+  "game": "TT2i",
+  "github_log_status": {
+    "available": true,
+    "errors": [],
+    "game_log_dir": "C:\\Users\\chris\\Documents\\Playground\\misc\\skills\\support-manager\\support-checks\\tt2i",
+    "latest_last_assessed_at_utc": "2026-05-05T03:59:15Z",
+    "latest_last_assessed_date": "2026-05-05",
+    "root": "C:\\Users\\chris\\Documents\\Playground\\misc\\skills\\support-manager\\support-checks",
+    "runs_found": 1
+  },
+  "github_log_write_status": {
+    "index_path": "C:\\Users\\chris\\Documents\\Playground\\misc\\skills\\support-manager\\support-checks\\tt2i\\index.json",
+    "log_path": "C:\\Users\\chris\\Documents\\Playground\\misc\\skills\\support-manager\\support-checks\\tt2i\\20260507T132327Z-ee22cba01f1978f6.json",
+    "root": "C:\\Users\\chris\\Documents\\Playground\\misc\\skills\\support-manager\\support-checks",
+    "status": "written_local_commit_and_push_required",
+    "written": true
+  },
+  "historical_runs_compared": 3,
+  "history_path": "C:\\Users\\chris\\Qublix Games Dropbox\\Chris K\\CodexSkillBundles\\Support\\tt2i.json",
+  "history_write_status": "no_new_rows_not_appended",
+  "history_written": false,
+  "player_message_summary": {
+    "content_escalation_reasons": [],
+    "content_escalation_recommended": false,
+    "messages": [],
+    "messages_shown": 0,
+    "plain_summary": "No new player messages since last support check.",
+    "total_messages": 0,
+    "truncated": false
+  },
+  "processing_window": {
+    "encoding": "utf-8-sig",
+    "last_assessed_at_before_run": "2026-05-06T22:40:38Z",
+    "last_assessed_date_before_run": "2026-05-06",
+    "rows_processed": 0,
+    "rows_seen": 1,
+    "stop_row": {
+      "date": "2026-05-06",
+      "row_number": 1,
+      "timestamp_utc": "2026-05-06T22:40:38Z"
+    },
+    "stopped_at_last_assessed_day": true
+  },
+  "run_record": {
+    "analyzed_at_utc": "2026-05-07T13:23:27Z",
+    "comparisons": {
+      "available": false,
+      "reason": "No dated rows were available for in-CSV comparison."
+    },
+    "complaints_since_last_check": {
+      "plain_summary": "No new complaints since last support check.",
+      "theme_count": 0,
+      "themes": [],
+      "total_complaints": 0
+    },
+    "content_escalation_recommended": false,
+    "csv_name": "feedback.csv",
+    "csv_path": "C:\\Users\\chris\\Downloads\\feedback.csv",
+    "daily_counts": {},
+    "dataset_hash": "26571e65e9a86444a0e4ac1e44a1c86659631ccd44cb90ded1a62319cef2d29f",
+    "date_range": {
+      "end_utc": null,
+      "start_utc": null
+    },
+    "last_assessed_at_utc": "2026-05-06T22:40:38Z",
+    "last_assessed_date": "2026-05-06",
+    "message_types": {},
+    "player_message_summary": {
+      "content_escalation_reasons": [],
+      "content_escalation_recommended": false,
+      "messages": [],
+      "messages_shown": 0,
+      "plain_summary": "No new player messages since last support check.",
+      "total_messages": 0,
+      "truncated": false
+    },
+    "processing_window": {
+      "encoding": "utf-8-sig",
+      "last_assessed_at_before_run": "2026-05-06T22:40:38Z",
+      "last_assessed_date_before_run": "2026-05-06",
+      "rows_processed": 0,
+      "rows_seen": 1,
+      "stop_row": {
+        "date": "2026-05-06",
+        "row_number": 1,
+        "timestamp_utc": "2026-05-06T22:40:38Z"
+      },
+      "stopped_at_last_assessed_day": true
+    },
+    "run_id": "ee22cba01f1978f6",
+    "spike_detected": false,
+    "spike_labels": [],
+    "top_app_versions": {},
+    "top_countries": {},
+    "top_hosted_asset_versions": {},
+    "top_locales": {},
+    "top_platforms": {},
+    "total_messages": 0,
+    "trend_note": "0 new messages after last assessed day 2026-05-06; no spikes flagged.",
+    "unique_players": 0,
+    "weekday_counts": {
+      "Friday": 0,
+      "Monday": 0,
+      "Saturday": 0,
+      "Sunday": 0,
+      "Thursday": 0,
+      "Tuesday": 0,
+      "Wednesday": 0
+    }
+  },
+  "spike_detected": false,
+  "spikes": [],
+  "summary": {
+    "daily_counts": {},
+    "date_range": {
+      "end_utc": null,
+      "start_utc": null
+    },
+    "message_types": {},
+    "top_app_versions": {},
+    "top_countries": {},
+    "top_hosted_asset_versions": {},
+    "top_locales": {},
+    "top_platforms": {},
+    "total_messages": 0,
+    "unique_players": 0,
+    "weekday_counts": {
+      "Friday": 0,
+      "Monday": 0,
+      "Saturday": 0,
+      "Sunday": 0,
+      "Thursday": 0,
+      "Tuesday": 0,
+      "Wednesday": 0
+    }
+  },
+  "trend_note": "0 new messages after last assessed day 2026-05-06; no spikes flagged."
+}
