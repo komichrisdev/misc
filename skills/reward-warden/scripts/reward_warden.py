@@ -411,6 +411,21 @@ def closest_helper_suggestion(target_coin: Decimal, source_amount: Decimal) -> t
     return best_name, best_amount
 
 
+def closest_life_suggestion(tt2_row: RewardRow, target_coin: Decimal) -> tuple[str, str, Decimal]:
+    life_options: list[tuple[str, str, Decimal]] = [
+        ("1", "", DATASET_CONFIGS[DATASET_ST3].life_refill_price),
+        ("", "3600", DATASET_CONFIGS[DATASET_ST3].life_exact_prices[3600]),
+        ("", "10800", DATASET_CONFIGS[DATASET_ST3].life_exact_prices[10800]),
+        ("", "21600", DATASET_CONFIGS[DATASET_ST3].life_exact_prices[21600]),
+    ]
+    if tt2_row.unlimited_for_seconds:
+        seconds = int(tt2_row.unlimited_for_seconds)
+        prorated_coin = (Decimal(seconds) / Decimal("3600")) * DATASET_CONFIGS[DATASET_ST3].life_hourly_price
+        life_options.append(("", tt2_row.unlimited_for_seconds, prorated_coin))
+
+    return min(life_options, key=lambda option: (abs(option[2] - target_coin), option[2]))
+
+
 def extract_dataset_rows(
     dataset: str, data_dir: Path, ignore_rules: list[tuple[str | None, str, tuple[str, ...]]]
 ) -> tuple[list[RewardRow], list[str]]:
@@ -459,6 +474,17 @@ def build_st3_suggestion(tt2_row: RewardRow | None) -> dict[str, str]:
     target_coin = (target_dollar * st3_config.coin_pack_coins / st3_config.coin_pack_dollars).quantize(
         Decimal("1"), rounding=ROUND_HALF_UP
     )
+    if is_life_reward(tt2_row):
+        suggested_amount, suggested_seconds, suggested_coin = closest_life_suggestion(tt2_row, target_coin)
+        suggested_dollar = dataset_coins_to_dollars(DATASET_ST3, suggested_coin)
+        return {
+            "suggested_st3_reward_name": "life",
+            "suggested_st3_amount": suggested_amount,
+            "suggested_st3_unlimited_for_seconds": suggested_seconds,
+            "suggested_st3_coin_value": decimal_to_str(suggested_coin),
+            "suggested_st3_dollar_value": money_to_str(suggested_dollar),
+            "suggested_st3_basis": "70% of TT2 life value mapped to closest-value ST3 life reward",
+        }
     if is_helper_reward(tt2_row):
         helper_amount = Decimal(tt2_row.amount) if tt2_row.amount else Decimal("1")
         helper_name, helper_amount = closest_helper_suggestion(target_coin, helper_amount)
