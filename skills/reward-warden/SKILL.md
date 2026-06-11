@@ -22,8 +22,8 @@ Input folders:
 
 1. First spawn `gpt-5.4-mini` subagents for parallel discovery or validation when the tool is available.
 2. Run the extractor on the `File Compare` root.
-3. Review the side-by-side TSV, summary, and ignore rules file.
-4. Run validation against the generated TSV.
+3. Review the side-by-side TSV, per-tab TSV folder, summary, and ignore rules file.
+4. Run validation against the generated main TSV.
 5. Edit the ignore rules file in `File Compare` when the user wants future exclusions.
 6. Report totals, validation status, output paths, subagent usage, and any pairing assumptions.
 
@@ -41,6 +41,14 @@ The output keeps exact source order inside each matched reward group, not raw wh
 - If no good ST3 group match exists, TT2 rows stay on the left with blank ST3 cells.
 - Any ST3 groups still unmatched are appended later with blank TT2 cells.
 - This is best-effort pairing for review. Structures do not need to match 1:1.
+
+Reward labels inside each source file are normalized into file-local group labels:
+
+- `Reward 1_1`
+- `Reward 1_2`
+- `Reward 2_1`
+
+These labels replace raw JSON source paths in the user-facing TSV output. Exact raw paths are still used internally for pairing and validation.
 
 ## Pricing rules
 
@@ -90,6 +98,7 @@ Current suggestion rule:
 - TT2 helper rewards should suggest the closest-value ST3 helper
 - TT2 currency rewards should suggest `hard_currency2`
 - suggested ST3 coin values should round to nicer steps based on `10`, `25`, `50`, and `100`
+- suggestion basis text should include the TT2 reward-group total, the 70% ST3 target, the resulting suggested ST3 total, and the concrete TT2 -> ST3 reward changes used for that reward group
 
 ## Ignore rules
 
@@ -120,7 +129,7 @@ Use the bundled Python runtime when needed:
 
 ## Output
 
-The TSV now contains three column groups:
+The main TSV now contains three column groups:
 
 - TT2 reward columns
 - ST3 reward columns
@@ -128,11 +137,43 @@ The TSV now contains three column groups:
 
 Columns:
 
-`row_index`, `tt2_source_file`, `tt2_source_path`, `tt2_reward_name`, `tt2_amount`, `tt2_unlimited_for_seconds`, `tt2_coin_value`, `tt2_dollar_value`, `st3_source_file`, `st3_source_path`, `st3_reward_name`, `st3_amount`, `st3_unlimited_for_seconds`, `st3_coin_value`, `st3_dollar_value`, `suggested_st3_reward_name`, `suggested_st3_amount`, `suggested_st3_unlimited_for_seconds`, `suggested_st3_coin_value`, `suggested_st3_dollar_value`, `suggested_st3_basis`
+`tt2_file`, `tt2_path`, `tt2_reward`, `tt2_amt`, `tt2_coins`, `tt2_usd`, `st3_file`, `st3_path`, `st3_reward`, `st3_amt`, `st3_coins`, `st3_usd`, `s_reward`, `s_amt`, `s_coins`, `s_usd`, `s_basis`
+
+Merged amount rule:
+
+- amount columns now hold either the numeric amount or a time label such as `1h`, `3h`, or `6h`
+- separate `unlimited_for` columns are no longer emitted
+- `row_index` is no longer emitted
+
+Per-tab output rules:
+
+- the extractor also writes one TSV per Google Sheet tab under `reward-warden-tabs`
+- tab names are:
+  - `config`
+  - `dailyQuest`
+  - direct-match tabs such as `appleSE`, `light_rush`, `camp_config`, `consecutive_challenge`, `levels_race`, `public_cup`, `ToC`
+  - `LO`
+  - `misc`
+- `LO` contains:
+  - `camp_barrel.json` <-> `barrel.json`
+  - `camp_bridge.json` <-> `rope.json`
+  - `camp_cave.json` <-> `cave.json`
+  - `camp_crane.json` <-> `cart.json`
+  - `camp_pyramid.json` <-> `golf.json`
+  - `camp_shipwreck.json` <-> `pirate.json`
+  - `camp_temple.json` <-> `witch.json`
+  - `camp_tower.json` <-> `mansion.json`
+  - `camp_trainpet.json` <-> `training.json`
+  - `camp_twotowers.json` <-> `forest.json`
+- `dailyQuest` includes:
+  - `DailyQuest.json`
+  - `DAILY_QUEST` inside `Config.json`
+- pretty tab TSVs include a blank separator row between reward groups and suppress repeated file names inside a contiguous block for easier sheet pasting
 
 Output files go to `File Compare` by default:
 
 - `reward-warden-output.txt`
+- `reward-warden-tabs\*.txt`
 - `reward-warden-summary.txt`
 - `reward-warden-validation.txt`
 - `reward-warden-ignore-prefixes.txt`
