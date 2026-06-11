@@ -1,0 +1,3 @@
+# One rule per line: source_file|json_path_prefix
+# Lines starting with # are comments.
+Config.json|BUILDINGS_PROGRESSION_ORDER
