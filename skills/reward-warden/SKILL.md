@@ -86,6 +86,7 @@ For every TT2 reward row with a dollar value, the skill suggests a new ST3 rewar
 
 Current suggestion rule:
 
+- TT2 life rewards should suggest the closest-value ST3 life reward
 - TT2 helper rewards should suggest the closest-value ST3 helper
 - TT2 currency rewards should suggest `hard_currency2`
 - suggested ST3 coin values should round to nicer steps based on `10`, `25`, `50`, and `100`
