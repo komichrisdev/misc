@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ice Pick</title>
+    <link rel="stylesheet" href="panel.css">
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand">
+        <img class="brand-logo" src="./assets/ice-pick-logo-v3.png" alt="Ice Pick logo">
+        <h1>Ice Pick</h1>
+        <span class="version-pill">v1.0.27</span>
+      </div>
+      <div class="toolbar-actions">
+        <button id="saveLogsButton" type="button">Save Logs</button>
+        <button id="pauseButton" type="button">Pause</button>
+        <button id="clearButton" type="button">Clear</button>
+        <button id="exportRulesButton" type="button">Export rules</button>
+        <button id="importRulesButton" type="button">Import rules</button>
+        <input id="importRulesInput" class="hidden" type="file" accept="application/json,.json">
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <aside class="rules-panel">
+        <div class="panel-header rules-header">
+          <div class="header-title-group">
+            <h2>Rules</h2>
+            <button class="info-button" type="button" data-help="Add rules here, toggle them on or off, and use the arrow button to compress this column." aria-label="Rules help"><img class="info-icon-image" src="./assets/info-icon.png" alt=""></button>
+          </div>
+          <div class="rules-header-actions">
+            <button id="rulesCollapseButton" class="icon-button" type="button" aria-label="Compress rules column">‹</button>
+            <button id="addRuleButton" type="button">Add rule</button>
+          </div>
+        </div>
+        <div id="ruleList" class="rule-list" aria-label="Saved rules"></div>
+        <p id="ruleFormHint" class="message rule-form-hint">Choose Edit on a saved rule, or Add rule to pick a network call.</p>
+
+        <form id="ruleForm" class="rule-form">
+          <div class="form-title-row">
+            <div class="header-title-group">
+              <h2>Edit rule</h2>
+              <button class="info-button" type="button" data-help="Set the match value first, save the rule, then use Add field to pick paths from a captured response. Drag fields to reorder them." aria-label="Edit rule help"><img class="info-icon-image" src="./assets/info-icon.png" alt=""></button>
+            </div>
+            <button id="deleteRuleButton" class="danger" type="button">Delete</button>
+          </div>
+
+          <label>
+            <span>Rule name</span>
+            <input id="ruleNameInput" type="text" autocomplete="off" required>
+          </label>
+
+          <label class="checkbox-row">
+            <input id="ruleEnabledInput" type="checkbox">
+            <span>Enabled</span>
+          </label>
+
+          <div class="two-column">
+            <label>
+              <span>Method</span>
+              <select id="ruleMethodInput">
+                <option value="ANY">ANY</option>
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="PATCH">PATCH</option>
+                <option value="DELETE">DELETE</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Match type</span>
+              <select id="ruleMatchTypeInput">
+                <option value="file">file</option>
+                <option value="urlContains">urlContains</option>
+                <option value="pathContains">pathContains</option>
+                <option value="fullUrl">fullUrl</option>
+              </select>
+            </label>
+          </div>
+
+          <label>
+            <span>Match value</span>
+            <input id="ruleMatchValueInput" type="text" autocomplete="off" required>
+          </label>
+
+          <div class="fields-header">
+            <h3>Fields</h3>
+            <button id="addFieldButton" type="button">Add field</button>
+          </div>
+          <div id="fieldsEditor" class="fields-editor"></div>
+
+          <button id="saveRuleButton" class="primary" type="submit">Save rule</button>
+        </form>
+        <p id="ruleMessage" class="message" role="status"></p>
+      </aside>
+
+      <section class="results-panel">
+        <div class="panel-header">
+          <div class="header-title-group">
+            <h2>Captured matches</h2>
+            <button class="info-button" type="button" data-help="Newest matches show first. Open More for request details. Click extracted value cards to expand nested data and use Copy for any value." aria-label="Captured matches help"><img class="info-icon-image" src="./assets/info-icon.png" alt=""></button>
+          </div>
+          <p id="captureStatus" class="status-pill">Running</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>More</th>
+                <th>Extracted values</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody">
+              <tr class="empty-row">
+                <td colspan="3">No matches captured yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="requestPickerModal" class="modal-backdrop hidden" aria-hidden="true">
+      <div class="modal-card traffic-modal" role="dialog" aria-modal="true" aria-labelledby="requestPickerTitle">
+        <div class="modal-header">
+          <div>
+            <h2 id="requestPickerTitle">Choose network call</h2>
+            <p class="message">Pick a request to build a new rule from it.</p>
+          </div>
+          <button id="closeRequestPickerButton" type="button">Close</button>
+        </div>
+        <label class="traffic-search">
+          <span>Search</span>
+          <input id="requestSearchInput" type="text" autocomplete="off" placeholder="Filter by method, file, or URL">
+        </label>
+        <div id="requestPickerList" class="traffic-list" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div id="fieldPickerModal" class="modal-backdrop hidden" aria-hidden="true">
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="fieldPickerTitle">
+        <div class="modal-header">
+          <div>
+            <div class="header-title-group">
+              <h2 id="fieldPickerTitle">Add field from response</h2>
+              <button class="info-button" type="button" data-help="Click Add on any path to add it as a field. Green means that branch is fully selected. Yellow means only some children are selected." aria-label="Response modal help"><img class="info-icon-image" src="./assets/info-icon.png" alt=""></button>
+            </div>
+            <p id="fieldPickerSubtitle" class="message">Pick a value from the latest matched response.</p>
+          </div>
+          <button id="closeFieldPickerButton" type="button">Close</button>
+        </div>
+        <label class="modal-search">
+          <span>Search fields</span>
+          <input id="fieldPickerSearchInput" type="text" autocomplete="off" placeholder="Filter by key, path, or value">
+        </label>
+        <div id="fieldPickerStatus" class="message"></div>
+        <div id="fieldPickerTree" class="json-tree" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div id="helpPopover" class="help-popover hidden" role="tooltip" aria-hidden="true"></div>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

@@ -1,0 +1,5 @@
+node_modules/
+.amo-source-stage/
+.firefox/
+.firefox-build/
+web-ext-artifacts/

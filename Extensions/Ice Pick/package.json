@@ -1,0 +1,18 @@
+{
+  "name": "ice-pick-extension",
+  "version": "1.0.27",
+  "private": true,
+  "description": "Cross-browser DevTools extension for matching network requests and extracting JSON values.",
+  "scripts": {
+    "prepare:firefox": "node scripts/prepare-firefox.js",
+    "prefirefox:run": "node scripts/prepare-firefox.js",
+    "prefirefox:build": "node scripts/prepare-firefox.js",
+    "prefirefox:lint": "node scripts/prepare-firefox.js",
+    "firefox:run": "web-ext run --source-dir .firefox-build --artifacts-dir web-ext-artifacts",
+    "firefox:build": "web-ext build --source-dir .firefox-build --artifacts-dir web-ext-artifacts --overwrite-dest",
+    "firefox:lint": "web-ext lint --source-dir .firefox-build"
+  },
+  "devDependencies": {
+    "web-ext": "10.4.0"
+  }
+}
