@@ -175,12 +175,6 @@ label span,
   gap: 8px;
 }
 
-.toolbar-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
 .toolbar-info-button {
   min-width: 22px;
   min-height: 22px;
@@ -458,6 +452,7 @@ label span,
   padding: 16px 18px;
   backdrop-filter: blur(18px);
   pointer-events: none;
+  white-space: pre-line;
 }
 
 .field-drag-dots {
