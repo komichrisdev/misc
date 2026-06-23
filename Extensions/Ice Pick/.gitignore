@@ -3,3 +3,9 @@ node_modules/
 .firefox/
 .firefox-build/
 web-ext-artifacts/
+assets/ice_pick_icon_master.png
+assets/icon16.png
+assets/icon32.png
+assets/icon48.png
+assets/icon128.png
+assets/icon512.png

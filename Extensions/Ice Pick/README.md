@@ -62,7 +62,7 @@ These steps reproduce the Firefox package submitted to AMO.
 
 1. In the project root, run `npm ci`.
 2. Run `npm run firefox:build`.
-3. The packaged Firefox add-on is created at `web-ext-artifacts/ice_pick-1.0.27.zip`.
+3. The packaged Firefox add-on is created at `web-ext-artifacts/ice_pick-1.0.28.zip`.
 
 ### Build script details
 

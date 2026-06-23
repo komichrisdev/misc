@@ -149,8 +149,8 @@ label span,
 
 .brand-logo {
   display: block;
-  width: 56px;
-  height: 56px;
+  width: 70px;
+  height: 70px;
   object-fit: contain;
 }
 
@@ -175,10 +175,26 @@ label span,
   gap: 8px;
 }
 
+.toolbar-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.toolbar-info-button {
+  min-width: 22px;
+  min-height: 22px;
+}
+
+.toolbar-info-button .info-icon-image {
+  width: 18px;
+  height: 18px;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: minmax(310px, 360px) minmax(0, 1fr);
-  height: calc(100vh - 56px);
+  height: calc(100vh - 86px);
   min-height: 420px;
 }
 
@@ -655,6 +671,7 @@ label span,
 }
 
 .json-tree {
+  max-height: min(58vh, 560px);
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -769,6 +786,13 @@ label span,
   min-width: 48px;
   min-height: 26px;
   padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.json-add-button.remove {
+  border-color: rgba(224, 95, 95, 0.64);
+  background: rgba(224, 95, 95, 0.14);
+  color: #ffdede;
 }
 
 .json-children {
@@ -814,6 +838,15 @@ th {
 
 tbody tr:hover {
   background: rgba(255, 255, 255, 0.025);
+}
+
+tbody tr.recent-rule-match {
+  background: linear-gradient(90deg, rgba(66, 184, 131, 0.14), rgba(92, 207, 230, 0.04));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+tbody tr.recent-rule-match:hover {
+  background: linear-gradient(90deg, rgba(66, 184, 131, 0.19), rgba(92, 207, 230, 0.07));
 }
 
 .empty-row td {
@@ -875,11 +908,36 @@ th:nth-child(1) {
 }
 
 .value-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(92, 207, 230, 0.24);
+  border-radius: 6px;
+  background: rgba(92, 207, 230, 0.08);
   cursor: pointer;
   list-style: none;
   overflow: hidden;
+  padding: 3px 7px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.value-summary::before {
+  content: ">";
+  color: var(--json-key);
+  font-size: 11px;
+  font-weight: 700;
+  transition: transform 0.14s ease;
+}
+
+.value-details[open] .value-summary::before {
+  transform: rotate(90deg);
+}
+
+.value-summary:hover,
+.value-summary:focus {
+  border-color: rgba(92, 207, 230, 0.48);
+  background: rgba(92, 207, 230, 0.13);
 }
 
 .value-summary::-webkit-details-marker {

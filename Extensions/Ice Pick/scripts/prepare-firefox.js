@@ -15,6 +15,14 @@ const sharedEntries = [
   "panel.js"
 ];
 const firefoxOnlyPermissions = ["webRequestBlocking", "webRequestFilterResponse"];
+const ignoredAssetFiles = [
+  "ice_pick_icon_master.png",
+  "icon16.png",
+  "icon32.png",
+  "icon48.png",
+  "icon128.png",
+  "icon512.png"
+];
 
 prepareFirefoxSource();
 
@@ -25,6 +33,7 @@ function prepareFirefoxSource() {
   for (const entry of sharedEntries) {
     copySharedEntry(entry);
   }
+  removeIgnoredAssetFiles();
 
   const manifestPath = path.join(firefoxDir, "manifest.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -33,9 +42,21 @@ function prepareFirefoxSource() {
     ...(Array.isArray(manifest.permissions) ? manifest.permissions : []),
     ...firefoxOnlyPermissions
   ]);
+  manifest.background = {
+    ...(manifest.background || {}),
+    scripts: ["background.js"]
+  };
 
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   process.stdout.write(`Prepared Firefox source at ${firefoxDir}\n`);
+}
+
+function removeIgnoredAssetFiles() {
+  for (const fileName of ignoredAssetFiles) {
+    fs.rmSync(path.join(firefoxDir, "assets", fileName), {
+      force: true
+    });
+  }
 }
 
 function copySharedEntry(entry) {

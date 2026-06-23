@@ -46,6 +46,7 @@ export async function initNetworkSnifferUi() {
 }
 
 function cacheDom() {
+  dom.toolsButton = document.getElementById("toolsButton");
   dom.saveLogsButton = document.getElementById("saveLogsButton");
   dom.pauseButton = document.getElementById("pauseButton");
   dom.clearButton = document.getElementById("clearButton");
@@ -83,6 +84,10 @@ function cacheDom() {
 }
 
 function bindEvents() {
+  dom.toolsButton.addEventListener("click", () => {
+    window.open("https://tools.qublixaws.com/", "_blank", "noopener");
+  });
+
   dom.saveLogsButton.addEventListener("click", () => {
     saveLogsBundle().catch((error) => {
       showRuleMessage(error.message || String(error), true);
@@ -465,6 +470,7 @@ async function saveSelectedRuleFromForm() {
 
 function renderResults() {
   dom.resultsBody.textContent = "";
+  const recentResultIds = getRecentResultIdsByActiveRule();
 
   if (!state.results.length) {
     const row = document.createElement("tr");
@@ -479,6 +485,7 @@ function renderResults() {
 
   for (const result of state.results) {
     const row = document.createElement("tr");
+    row.classList.toggle("recent-rule-match", recentResultIds.has(result.id));
 
     appendCell(row, formatTimestamp(result.timestamp), "timestamp-cell");
     row.append(createMoreCell(result));
@@ -489,6 +496,23 @@ function renderResults() {
     row.append(valuesCell);
     dom.resultsBody.append(row);
   }
+}
+
+function getRecentResultIdsByActiveRule() {
+  const activeRuleIds = new Set(state.rules.filter((rule) => rule.enabled).map((rule) => rule.id));
+  const seenRuleIds = new Set();
+  const resultIds = new Set();
+
+  for (const result of state.results) {
+    if (!result || !activeRuleIds.has(result.ruleId) || seenRuleIds.has(result.ruleId)) {
+      continue;
+    }
+
+    seenRuleIds.add(result.ruleId);
+    resultIds.add(result.id);
+  }
+
+  return resultIds;
 }
 
 function addRequestEntry(entry) {
@@ -730,7 +754,7 @@ function renderExtractedValueContent(value) {
   const wrap = document.createElement("div");
   wrap.className = "nested-value-list";
 
-  for (const [childKey, childValue] of getEntries(value)) {
+  for (const [childKey, childValue] of getValueDisplayEntries(value)) {
     const child = document.createElement("div");
     child.className = "nested-value-item";
 
@@ -778,7 +802,7 @@ function renderCollapsibleValue(value) {
     const children = document.createElement("div");
     children.className = "nested-value-list";
 
-    for (const [childKey, childValue] of getEntries(value)) {
+    for (const [childKey, childValue] of getValueDisplayEntries(value)) {
       const child = document.createElement("div");
       child.className = "nested-value-item waterfall-item";
 
@@ -1247,15 +1271,7 @@ function renderJsonNode(value, path, key = path, searchQuery = "", showFullSubtr
   typeEl.className = "json-type";
   typeEl.textContent = Array.isArray(value) ? `[${value.length}]` : "{...}";
 
-  const addButton = document.createElement("button");
-  addButton.type = "button";
-  addButton.className = "json-add-button";
-  addButton.textContent = "Add";
-  addButton.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    addFieldFromPath(path);
-  });
+  const addButton = createFieldPickerToggleButton(path);
 
   summary.append(keyEl, typeEl, addButton);
   details.append(summary);
@@ -1264,9 +1280,14 @@ function renderJsonNode(value, path, key = path, searchQuery = "", showFullSubtr
   children.className = "json-children";
   let childCount = 0;
 
-  for (const [childKey, childValue] of getEntries(value)) {
-    const childPath = buildChildPath(path, childKey, Array.isArray(value));
-    const childNode = renderJsonNode(childValue, childPath, childKey, searchQuery, showChildren);
+  for (const childEntry of getJsonTreeEntries(value, path)) {
+    const childNode = renderJsonNode(
+      childEntry.value,
+      childEntry.path,
+      childEntry.displayKey,
+      searchQuery,
+      showChildren
+    );
     if (!childNode) {
       continue;
     }
@@ -1301,19 +1322,39 @@ function renderJsonLeaf(value, path, key, selectionState = "none") {
 
   meta.append(keyEl, valueEl);
 
-  const addButton = document.createElement("button");
-  addButton.type = "button";
-  addButton.className = "json-add-button";
-  addButton.textContent = "Add";
-  addButton.addEventListener("click", () => {
-    addFieldFromPath(path);
-  });
+  const addButton = createFieldPickerToggleButton(path);
 
   row.append(meta, addButton);
   return row;
 }
 
+function createFieldPickerToggleButton(path) {
+  const isSelected = isExactSelectedPath(path);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `json-add-button${isSelected ? " remove" : ""}`;
+  button.textContent = isSelected ? "Remove" : "Add";
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (isSelected) {
+      removeFieldPath(path);
+      return;
+    }
+
+    addFieldFromPath(path);
+  });
+
+  return button;
+}
+
 function addFieldFromPath(path) {
+  if (isExactSelectedPath(path)) {
+    removeFieldPath(path);
+    return;
+  }
+
   const label = deriveFieldLabel(path);
   addFieldRow({ label, path });
   dom.fieldPickerStatus.textContent = `Added ${path}`;
@@ -1322,10 +1363,29 @@ function addFieldFromPath(path) {
   refreshFieldPicker();
 }
 
+function removeFieldPath(path) {
+  const normalizedPath = normalizeFieldPath(path);
+
+  for (const row of dom.fieldsEditor.querySelectorAll(".field-row")) {
+    const input = row.querySelector(".field-path-input");
+    if (input && normalizeFieldPath(input.value) === normalizedPath) {
+      row.remove();
+    }
+  }
+
+  dom.fieldPickerStatus.textContent = `Removed ${path}`;
+  dom.fieldPickerStatus.classList.remove("error");
+  showRuleMessage(`Field removed: ${path}`, false);
+  refreshFieldPicker();
+}
+
 function deriveFieldLabel(path) {
   const cleanPath = String(path || "").replace(/\[(\d+)\]/g, ".$1");
   const parts = cleanPath.split(".").filter(Boolean);
-  return parts[parts.length - 1] || "Value";
+  const lastPart = parts[parts.length - 1] || "Value";
+  const beforeLast = parts[parts.length - 2] || "";
+
+  return /^\d+$/.test(beforeLast) ? `${beforeLast} ${lastPart}` : lastPart;
 }
 
 function doesJsonNodeMatchSearch(value, path, key, displayKey, searchQuery) {
@@ -1364,6 +1424,62 @@ function getEntries(value) {
   }
 
   return Object.entries(value || {});
+}
+
+function getValueDisplayEntries(value) {
+  if (!Array.isArray(value)) {
+    return getEntries(value);
+  }
+
+  return value.flatMap((item, index) => {
+    const indexKey = String(index);
+
+    if (item && typeof item === "object") {
+      const entries = getEntries(item);
+      if (entries.length) {
+        return entries.map(([childKey, childValue]) => [`${indexKey} ${childKey}`, childValue]);
+      }
+    }
+
+    return [[indexKey, item]];
+  });
+}
+
+function getJsonTreeEntries(value, parentPath) {
+  if (!Array.isArray(value)) {
+    return getEntries(value).map(([childKey, childValue]) => ({
+      displayKey: childKey,
+      path: buildChildPath(parentPath, childKey, false),
+      value: childValue
+    }));
+  }
+
+  return value.flatMap((item, index) => {
+    const indexKey = String(index);
+    const indexPath = buildChildPath(parentPath, indexKey, true);
+
+    if (item && typeof item === "object") {
+      const entries = getEntries(item);
+      if (entries.length) {
+        return entries.map(([childKey, childValue]) => {
+          const childPath = buildChildPath(indexPath, childKey, Array.isArray(item));
+          const childDisplay = formatPathDisplay(childPath, childKey);
+
+          return {
+            displayKey: childDisplay.startsWith(`${indexKey} `) ? childDisplay : `${indexKey} ${childDisplay}`,
+            path: childPath,
+            value: childValue
+          };
+        });
+      }
+    }
+
+    return [{
+      displayKey: indexKey,
+      path: indexPath,
+      value: item
+    }];
+  });
 }
 
 function buildChildPath(parentPath, childKey, isArray) {
@@ -1582,11 +1698,20 @@ function getPathSelectionState(path, value) {
 }
 
 function isPathCovered(path) {
+  const normalizedPath = normalizeFieldPath(path);
   return getSelectedFieldPaths().some((selectedPath) => (
-    path === selectedPath ||
-    path.startsWith(`${selectedPath}.`) ||
-    path.startsWith(`${selectedPath}[`)
+    normalizedPath === normalizeFieldPath(selectedPath) ||
+    normalizedPath.startsWith(`${normalizeFieldPath(selectedPath)}.`)
   ));
+}
+
+function isExactSelectedPath(path) {
+  const normalizedPath = normalizeFieldPath(path);
+  return getSelectedFieldPaths().some((selectedPath) => normalizeFieldPath(selectedPath) === normalizedPath);
+}
+
+function normalizeFieldPath(path) {
+  return String(path || "").trim().replace(/\[(\d+)\]/g, ".$1");
 }
 
 function applySelectionStateClass(element, selectionState) {

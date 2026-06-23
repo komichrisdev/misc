@@ -9,16 +9,35 @@
   <body>
     <header class="toolbar">
       <div class="brand">
-        <img class="brand-logo" src="./assets/ice-pick-logo-v3.png" alt="Ice Pick logo">
+        <img class="brand-logo" src="./assets/ice-pick-logo-v4.png" alt="Ice Pick logo">
         <h1>Ice Pick</h1>
-        <span class="version-pill">v1.0.27</span>
+        <span class="version-pill">v1.0.28</span>
       </div>
       <div class="toolbar-actions">
-        <button id="saveLogsButton" type="button">Save Logs</button>
-        <button id="pauseButton" type="button">Pause</button>
-        <button id="clearButton" type="button">Clear</button>
-        <button id="exportRulesButton" type="button">Export rules</button>
-        <button id="importRulesButton" type="button">Import rules</button>
+        <span class="toolbar-action">
+          <button id="toolsButton" type="button">Tools</button>
+          <button class="info-button toolbar-info-button" type="button" data-help="Open Qublix tools in a new tab." aria-label="Tools help"><img class="info-icon-image" src="./assets/info-icon.png" alt=""></button>
+        </span>
+        <span class="toolbar-action">
+          <button id="saveLogsButton" type="button">Save Logs</button>
+          <button class="info-button toolbar-info-button" type="button" data-help="Save console logs and a HAR file from the current DevTools session to Downloads." aria-label="Save Logs help"><img class="info-icon-image" src="./assets/info-icon.png" alt=""></button>
+        </span>
+        <span class="toolbar-action">
+          <button id="pauseButton" type="button">Pause</button>
+          <button class="info-button toolbar-info-button" type="button" data-help="Pause or resume matching captured network responses." aria-label="Pause help"><img class="info-icon-image" src="./assets/info-icon.png" alt=""></button>
+        </span>
+        <span class="toolbar-action">
+          <button id="clearButton" type="button">Clear</button>
+          <button class="info-button toolbar-info-button" type="button" data-help="Clear captured match rows from this panel." aria-label="Clear help"><img class="info-icon-image" src="./assets/info-icon.png" alt=""></button>
+        </span>
+        <span class="toolbar-action">
+          <button id="exportRulesButton" type="button">Export rules</button>
+          <button class="info-button toolbar-info-button" type="button" data-help="Download your saved rules as a local JSON file." aria-label="Export rules help"><img class="info-icon-image" src="./assets/info-icon.png" alt=""></button>
+        </span>
+        <span class="toolbar-action">
+          <button id="importRulesButton" type="button">Import rules</button>
+          <button class="info-button toolbar-info-button" type="button" data-help="Import rules from a local JSON file." aria-label="Import rules help"><img class="info-icon-image" src="./assets/info-icon.png" alt=""></button>
+        </span>
         <input id="importRulesInput" class="hidden" type="file" accept="application/json,.json">
       </div>
     </header>
