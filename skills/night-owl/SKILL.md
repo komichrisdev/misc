@@ -1,6 +1,6 @@
 ---
 name: night-owl
-description: Process Jira work asynchronously during an unattended nightly window. Use when Codex needs to triage the AIGents Kanban queue, resume In Progress work, implement eligible To Do issues, update Jira comments and worklogs, publish project changes to GitHub, hand work to Test Pending, or prepare the Night Owl morning report.
+description: Process Jira work asynchronously every four hours. Use when Codex needs to triage the AIGents Kanban queue, resume In Progress work, implement eligible To Do issues, update Jira comments and worklogs, publish project changes to GitHub, hand work to Test Pending, or prepare the Night Owl morning report.
 ---
 
 # Night Owl
@@ -39,22 +39,29 @@ If requirements or the target repository are ambiguous, add the exact questions 
 6. Add a Jira comment with the outcome, checks, commit or PR links, and any residual risk.
 7. Write or update `runs/<project>/<issue-key>.md` in the `misc` repository with a concise, secret-free execution journal and publish it.
 8. Move completed or blocked work to `Test Pending`. Never move work to `Done`; human validation owns that transition.
+9. Immediately call `scripts/send_report.sh --test-pending <issue-key> complete` for completed work or `scripts/send_report.sh --test-pending <issue-key> questions` for blocked work. Report a notification failure in Jira rather than hiding it.
 
 When checks fail, attempt a root-cause fix within the available window. If the issue cannot be completed safely, preserve the working state, document the failure and exact resume steps, record time, and move it to `Test Pending`.
 
 ## Morning Report
 
-Write `~/.local/state/night-owl/report.md` only when at least one issue was processed or the automation itself failed. Keep it below 1,900 characters and list:
+Append to `~/.local/state/night-owl/report.md` when at least one issue was processed or the automation itself failed. Keep the accumulated report below 1,900 characters and list:
 
 - completed issues and links
 - blocked issues and questions
 - failed checks or automation errors
 
-Remove a stale report before a successful no-work run. The 7:00 AM reporter sends this file once and archives it locally.
+Leave an existing report untouched after a no-work run. The 7:00 AM reporter sends the accumulated file once and archives it locally. If no report exists, send a daily no-work message.
+
+Each `Test Pending` transition also sends one immediate message:
+
+- `Work complete, awaiting review` for finished work
+- `Work paused, I have questions` when human input is required
 
 ## Scripts
 
 - Run `scripts/run_nightly.sh --dry-run` to validate prerequisites without starting Codex.
-- Run `scripts/run_nightly.sh` for the four-hour unattended worker.
-- Run `scripts/send_report.sh` to send a pending Discord report.
+- Run `scripts/run_nightly.sh` for each recurring four-hour queue check.
+- Run `scripts/send_report.sh` for the daily Discord report.
+- Run `scripts/send_report.sh --test-pending <issue-key> complete|questions` after a `Test Pending` transition.
 - Run `scripts/self_test.sh` after changes.

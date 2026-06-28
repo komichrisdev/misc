@@ -23,7 +23,6 @@ if [[ ${1:-} == --dry-run ]]; then
   exit 0
 fi
 
-rm -f "$state_dir/report.md"
 run_id=$(date -u +%Y%m%dT%H%M%SZ)
 log="$state_dir/$run_id.jsonl"
 last_message="$state_dir/last-message.txt"
@@ -40,9 +39,7 @@ status=$?
 set -e
 
 if (( status != 0 )); then
-  cat >"$state_dir/report.md" <<EOF
-# Night Owl
-
+  cat >>"$state_dir/report.md" <<EOF
 - Automation failed with exit code $status.
 - Log: $log
 EOF
