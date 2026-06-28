@@ -1,0 +1,4 @@
+interface:
+  display_name: "Night Owl"
+  short_description: "Run Jira work safely while you sleep"
+  default_prompt: "Use $night-owl to process the eligible Jira queue and record the handoff."

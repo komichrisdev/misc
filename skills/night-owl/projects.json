@@ -1,0 +1,16 @@
+{
+  "jira": {
+    "cloud": "https://komichris.atlassian.net",
+    "queueProject": "KAN"
+  },
+  "repositories": {
+    "misc": {
+      "path": "/home/komichris/misc",
+      "github": "https://github.com/komichrisdev/misc"
+    },
+    "crypto-keeper": {
+      "path": "/home/komichris/crypto-keeper",
+      "github": "https://github.com/komichrisdev/Crypto-Keeper"
+    }
+  }
+}
