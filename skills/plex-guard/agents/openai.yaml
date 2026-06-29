@@ -1,0 +1,7 @@
+interface:
+  display_name: "Plex Guard"
+  short_description: "Audit Plex host security safely"
+  default_prompt: "Use $plex-guard to run a report-only security audit for the Plex host."
+
+policy:
+  allow_implicit_invocation: true
