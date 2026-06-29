@@ -30,9 +30,9 @@ deadline=$(date -d "+$run_hours hours" --iso-8601=seconds)
 
 set +e
 timeout --signal=TERM --kill-after=5m "$run_limit" \
-  "$codex_bin" exec --skip-git-repo-check -C "$HOME" \
+  "$codex_bin" -a never exec --skip-git-repo-check -C "$HOME" \
   -m gpt-5.4-mini -c 'model_reasoning_effort="medium"' \
-  -s workspace-write -a never --json -o "$last_message" \
+  -s workspace-write --json -o "$last_message" \
   "Use \$night-owl to process the eligible Jira queue sequentially. Stop new work before $deadline so Jira and GitHub handoffs finish on time." \
   >"$log" 2>&1
 status=$?
