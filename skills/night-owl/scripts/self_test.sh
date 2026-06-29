@@ -6,6 +6,7 @@ state_dir=$(mktemp -d)
 trap 'rm -rf "$state_dir"' EXIT
 
 NIGHT_OWL_STATE_DIR="$state_dir" "$script_dir/run_nightly.sh" --dry-run >/dev/null
+python3 "$script_dir/download_jira_attachment.py" --self-test >/dev/null
 
 printf '# Existing report\n' >"$state_dir/report.md"
 NIGHT_OWL_STATE_DIR="$state_dir" NIGHT_OWL_CODEX=/bin/true NIGHT_OWL_TIMEOUT=1s NIGHT_OWL_RUN_HOURS=1 \

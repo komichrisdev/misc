@@ -29,6 +29,18 @@ Resolve the target repository from an explicit issue reference or `projects.json
 
 If requirements or the target repository are ambiguous, add the exact questions and restart context to Jira, record time spent, move the issue to `Test Pending`, and continue to the next issue.
 
+## Jira Attachments
+
+The Jira connector returns attachment IDs and filenames but not file contents. When an attachment is required, use:
+
+```bash
+python3 scripts/download_jira_attachment.py ATTACHMENT_ID --output-dir /path/to/project/data
+```
+
+The helper reads `ATLASSIAN_SITE_URL`, `ATLASSIAN_EMAIL`, and `ATLASSIAN_API_TOKEN` from `~/.config/night-owl/env` or the environment. Keep that file mode `0600`, download only attachments belonging to the active issue, and never print or copy its contents into logs, Jira, Git, or prompts. The helper refuses plaintext HTTP, unsafe filenames, and overwrites.
+
+If credentials are missing, ask the user to create an Atlassian API token, add the three values to the private config, and return the issue to `To Do`.
+
 ## Execute
 
 1. Move actionable `To Do` work to `In Progress` before editing.
@@ -64,4 +76,5 @@ Each `Test Pending` transition also sends one immediate message:
 - Run `scripts/run_nightly.sh` for each recurring four-hour queue check.
 - Run `scripts/send_report.sh` for the daily Discord report.
 - Run `scripts/send_report.sh --test-pending <issue-key> complete|questions` after a `Test Pending` transition.
+- Run `scripts/download_jira_attachment.py <attachment-id> --output-dir <directory>` for issue attachments.
 - Run `scripts/self_test.sh` after changes.
