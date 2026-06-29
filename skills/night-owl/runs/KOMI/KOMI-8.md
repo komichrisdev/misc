@@ -1,6 +1,6 @@
 # KOMI-8: Plex Media Organizer Upgrade
 
-- Outcome: Paused because the Plex Picker repository has extensive older uncommitted changes in the same files this upgrade must modify.
-- Resume: Use the writable copy at `/home/komichris/misc/skills/plex-media-organizer`, then return the issue to To Do and implement the Jira anime-intake path.
-- Safety: No repository, media, or qBittorrent changes were made.
+- Outcome: Implemented and pushed the Plex organizer updates for the Jira anime-intake path, review logging, missing-episode reporting, qBittorrent RSS sync, and qBittorrent health reporting.
+- Checks: `bash -n` on the shell scripts, `python3 -m py_compile` on the new Python helpers, and `git diff --check`.
+- Commit: `c04813f` pushed to `https://github.com/komichrisdev/Plex-Picker`.
 - Jira: https://komichris.atlassian.net/browse/KOMI-8
