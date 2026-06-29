@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rent Splitter"
+  short_description: "Update and share the monthly rent split"
+  default_prompt: "Use $rent-splitter to prepare this month’s rent split from billing emails."

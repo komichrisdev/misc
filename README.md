@@ -9,3 +9,4 @@ Shared home for small Codex assets, skills, scripts, notes, and other useful fil
 - `skills/locale-manager/SKILL.md` - Codex skill for safely updating JSON `.locale` localization folders.
 - `skills/support-manager/SKILL.md` - Codex skill for triaging exported support feedback CSVs.
 - `skills/night-owl/SKILL.md` - Four-hour Jira worker with GitHub handoff and morning Discord reporting.
+- `skills/rent-splitter/SKILL.md` - Month-end Gmail-to-Google-Sheets rent split automation with Discord delivery.
