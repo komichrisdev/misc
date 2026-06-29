@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 state_dir=${NIGHT_OWL_STATE_DIR:-"$HOME/.local/state/night-owl"}
 config_file=${NIGHT_OWL_CONFIG_FILE:-"$HOME/.config/night-owl/env"}
 curl_bin=${NIGHT_OWL_CURL:-curl}
 report="$state_dir/report.md"
+status_dir="$script_dir/../assets/status"
 
 [[ -f "$config_file" ]] || { echo "Missing Night Owl config: $config_file" >&2; exit 1; }
 # shellcheck disable=SC1090
@@ -12,20 +14,14 @@ source "$config_file"
 : "${DISCORD_WEBHOOK_URL:?DISCORD_WEBHOOK_URL is required}"
 
 send_message() {
-  local payload
-payload=$(python3 - "$1" "$2" <<'PY'
+  local image payload state
+  local -a message
+  mapfile -t message < <(python3 - "$1" "$2" <<'PY'
 import json
 import sys
 
 content = sys.argv[1][:1900]
 mode = sys.argv[2]
-
-status_images = {
-    "idle": "https://media.staging.atl-paas.net/?type=file&localId=bf6ce1467f61&id=88fc2384-97dc-42f0-8175-bb7719b339fe&&collection=&height=1178&occurrenceKey=null&width=1335&__contextId=null&__displayType=null&__external=false&__fileMimeType=null&__fileName=null&__fileSize=null&__mediaTraceId=null&url=null",
-    "question": "https://media.staging.atl-paas.net/?type=file&localId=51648e593615&id=4546063b-880d-49b7-96d6-c4b136d6fcc7&&collection=&height=1186&occurrenceKey=null&width=1326&__contextId=null&__displayType=null&__external=false&__fileMimeType=null&__fileName=null&__fileSize=null&__mediaTraceId=null&url=null",
-    "done": "https://media.staging.atl-paas.net/?type=file&localId=84d794ea285f&id=7ac71a7f-a7a6-4dc5-aaf5-9f7c3590a72f&&collection=&height=1247&occurrenceKey=null&width=1261&__contextId=null&__displayType=null&__external=false&__fileMimeType=null&__fileName=null&__fileSize=null&__mediaTraceId=null&url=null",
-    "working": "https://media.staging.atl-paas.net/?type=file&localId=ce91d9cef6c5&id=5535b52c-bcc7-49b1-bbe1-c0bd2c060569&&collection=&height=1199&occurrenceKey=null&width=1312&__contextId=null&__displayType=null&__external=false&__fileMimeType=null&__fileName=null&__fileSize=null&__mediaTraceId=null&url=null",
-}
 
 state = "idle"
 if mode == "questions":
@@ -45,15 +41,20 @@ payload = {
     "content": content,
     "embeds": [
         {
-            "image": {"url": status_images[state]},
+            "image": {"url": f"attachment://{state}.png"},
             "footer": {"text": f"Night Owl status: {state}"},
         }
     ],
 }
+print(state)
 print(json.dumps(payload))
 PY
-)
-  "$curl_bin" -fsS -H 'Content-Type: application/json' -d "$payload" "$DISCORD_WEBHOOK_URL" >/dev/null
+  )
+  state=${message[0]}
+  payload=${message[1]}
+  image="$status_dir/$state.png"
+  [[ -f "$image" ]] || { echo "Missing Night Owl status image: $image" >&2; return 1; }
+  "$curl_bin" -fsS -F "payload_json=$payload" -F "files[0]=@$image" "$DISCORD_WEBHOOK_URL" >/dev/null
 }
 
 if [[ ${1:-} == --test-pending ]]; then
