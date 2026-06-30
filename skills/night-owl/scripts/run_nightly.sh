@@ -27,18 +27,22 @@ run_id=$(date -u +%Y%m%dT%H%M%SZ)
 log="$state_dir/$run_id.jsonl"
 last_message="$state_dir/last-message.txt"
 deadline=$(date -d "+$run_hours hours" --iso-8601=seconds)
+: >"$last_message"
 
 set +e
 timeout --signal=TERM --kill-after=5m "$run_limit" \
   "$codex_bin" -a never exec --skip-git-repo-check -C "$HOME" \
   -m gpt-5.4-mini -c 'model_reasoning_effort="medium"' \
   -s workspace-write --json -o "$last_message" \
-  "Use \$night-owl to process the eligible Jira queue sequentially. Stop new work before $deadline so Jira and GitHub handoffs finish on time." \
+  "Use \$night-owl to process the eligible Jira queue sequentially. Start by querying both eligible statuses with atlassian_rovo.searchJiraIssuesUsingJql. Never infer an empty queue from logs, cached state, or a failed REST fallback. If either live query fails, stop and report the failure. After successful live queries and all handoffs, end your final response with a line containing only JIRA_QUEUE_VERIFIED. Stop new work before $deadline so Jira and GitHub handoffs finish on time." \
   >"$log" 2>&1
 status=$?
 set -e
 
-if (( status != 0 )); then
+if (( status == 0 )) && ! grep -qx 'JIRA_QUEUE_VERIFIED' "$last_message"; then
+  status=1
+  echo '- Automation failed: live Jira queue was not verified.' >>"$state_dir/report.md"
+elif (( status != 0 )); then
   cat >>"$state_dir/report.md" <<EOF
 - Automation failed with exit code $status.
 - Log: $log

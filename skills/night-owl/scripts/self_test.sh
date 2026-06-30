@@ -68,4 +68,23 @@ for payload, image in zip(payloads, images):
     assert payload["embeds"][0]["image"]["url"] == f"attachment://{image}"
 PY
 
+cat >"$state_dir/codex" <<'EOF'
+#!/usr/bin/env bash
+while (( $# )); do
+  if [[ $1 == -o ]]; then
+    printf '%s\n' 'queue could not be checked' >"$2"
+    break
+  fi
+  shift
+done
+EOF
+chmod +x "$state_dir/codex"
+runner_state="$state_dir/runner"
+if NIGHT_OWL_CAPTURE_DIR="$capture_dir" NIGHT_OWL_STATE_DIR="$runner_state" NIGHT_OWL_CONFIG_FILE="$state_dir/env" NIGHT_OWL_CURL="$state_dir/curl" NIGHT_OWL_CODEX="$state_dir/codex" \
+  "$script_dir/run_nightly.sh"; then
+  echo 'Unverified Jira queue unexpectedly succeeded' >&2
+  exit 1
+fi
+grep -q 'live Jira queue was not verified' "$runner_state"/sent/*.md
+
 echo "Night Owl self-test passed"
