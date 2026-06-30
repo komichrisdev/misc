@@ -64,7 +64,8 @@ if [[ ${1:-} == --test-pending ]]; then
     questions) nature='Work paused, I have questions' ;;
     *) echo 'Outcome must be complete or questions' >&2; exit 2 ;;
   esac
-  send_message "$issue: $nature. https://komichris.atlassian.net/browse/$issue" "${3:-}"
+  mkdir -p "$state_dir"
+  printf -- '- %s: %s. https://komichris.atlassian.net/browse/%s\n' "$issue" "$nature" "$issue" >>"$report"
   exit 0
 fi
 

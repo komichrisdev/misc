@@ -45,4 +45,8 @@ if (( status != 0 )); then
 EOF
 fi
 
+if [[ -f "$state_dir/report.md" ]]; then
+  "$skill_dir/scripts/send_report.sh"
+fi
+
 exit "$status"

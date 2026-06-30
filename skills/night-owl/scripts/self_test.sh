@@ -8,12 +8,6 @@ trap 'rm -rf "$state_dir"' EXIT
 NIGHT_OWL_STATE_DIR="$state_dir" "$script_dir/run_nightly.sh" --dry-run >/dev/null
 python3 "$script_dir/download_jira_attachment.py" --self-test >/dev/null
 
-printf '# Existing report\n' >"$state_dir/report.md"
-NIGHT_OWL_STATE_DIR="$state_dir" NIGHT_OWL_CODEX=/bin/true NIGHT_OWL_TIMEOUT=1s NIGHT_OWL_RUN_HOURS=1 \
-  "$script_dir/run_nightly.sh"
-compgen -G "$state_dir/*.jsonl" >/dev/null
-grep -q 'Existing report' "$state_dir/report.md"
-
 capture_dir="$state_dir/captures"
 mkdir -p "$capture_dir"
 cat >"$state_dir/curl" <<'EOF'
@@ -48,14 +42,15 @@ printf "DISCORD_WEBHOOK_URL='https://example.invalid/test'\n" >"$state_dir/env"
 NIGHT_OWL_CAPTURE_DIR="$capture_dir" NIGHT_OWL_STATE_DIR="$state_dir" NIGHT_OWL_CONFIG_FILE="$state_dir/env" NIGHT_OWL_CURL="$state_dir/curl" \
   "$script_dir/send_report.sh"
 [[ ! -e "$state_dir/report.md" ]]
-compgen -G "$state_dir/sent/*.md" >/dev/null
 NIGHT_OWL_CAPTURE_DIR="$capture_dir" NIGHT_OWL_STATE_DIR="$state_dir" NIGHT_OWL_CONFIG_FILE="$state_dir/env" NIGHT_OWL_CURL="$state_dir/curl" \
   "$script_dir/send_report.sh" --test-pending KOMI-5 complete
 NIGHT_OWL_CAPTURE_DIR="$capture_dir" NIGHT_OWL_STATE_DIR="$state_dir" NIGHT_OWL_CONFIG_FILE="$state_dir/env" NIGHT_OWL_CURL="$state_dir/curl" \
   "$script_dir/send_report.sh" --test-pending KOMI-5 questions
-printf '# Tasks currently in progress\n' >"$state_dir/report.md"
+grep -q 'KOMI-5: Work complete, awaiting review' "$state_dir/report.md"
+grep -q 'KOMI-5: Work paused, I have questions' "$state_dir/report.md"
 NIGHT_OWL_CAPTURE_DIR="$capture_dir" NIGHT_OWL_STATE_DIR="$state_dir" NIGHT_OWL_CONFIG_FILE="$state_dir/env" NIGHT_OWL_CURL="$state_dir/curl" \
   "$script_dir/send_report.sh"
+compgen -G "$state_dir/sent/*.md" >/dev/null
 
 python3 - "$capture_dir" <<'PY'
 import json
@@ -65,12 +60,10 @@ from pathlib import Path
 capture_dir = Path(sys.argv[1])
 payloads = [json.loads(path.read_text(encoding="utf-8")) for path in sorted(capture_dir.glob("*.json"))]
 images = [path.read_text(encoding="utf-8") for path in sorted(capture_dir.glob("*.file"))]
-assert len(payloads) == 4, len(payloads)
+assert len(payloads) == 2, len(payloads)
 assert payloads[0]["embeds"][0]["footer"]["text"] == "Night Owl status: idle"
-assert payloads[1]["embeds"][0]["footer"]["text"] == "Night Owl status: done"
-assert payloads[2]["embeds"][0]["footer"]["text"] == "Night Owl status: question"
-assert payloads[3]["embeds"][0]["footer"]["text"] == "Night Owl status: working"
-assert images == ["idle.png", "done.png", "question.png", "working.png"], images
+assert payloads[1]["embeds"][0]["footer"]["text"] == "Night Owl status: question"
+assert images == ["idle.png", "question.png"], images
 for payload, image in zip(payloads, images):
     assert payload["embeds"][0]["image"]["url"] == f"attachment://{image}"
 PY

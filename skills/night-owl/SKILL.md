@@ -51,7 +51,7 @@ If credentials are missing, ask the user to create an Atlassian API token, add t
 6. Add a Jira comment with the outcome, checks, commit or PR links, and any residual risk.
 7. Write or update `runs/<project>/<issue-key>.md` in the `misc` repository with a concise, secret-free execution journal and publish it.
 8. Move completed or blocked work to `Test Pending`. Never move work to `Done`; human validation owns that transition.
-9. Immediately call `scripts/send_report.sh --test-pending <issue-key> complete` for completed work or `scripts/send_report.sh --test-pending <issue-key> questions` for blocked work. Report a notification failure in Jira rather than hiding it.
+9. Call `scripts/send_report.sh --test-pending <issue-key> complete` for completed work or `scripts/send_report.sh --test-pending <issue-key> questions` for blocked work so the run can batch the Discord handoff. Report a notification failure in Jira rather than hiding it.
 
 When checks fail, attempt a root-cause fix within the available window. If the issue cannot be completed safely, preserve the working state, document the failure and exact resume steps, record time, and move it to `Test Pending`.
 
@@ -65,7 +65,7 @@ Append to `~/.local/state/night-owl/report.md` when at least one issue was proce
 
 Leave an existing report untouched after a no-work run. The 7:00 AM reporter sends the accumulated file once and archives it locally. If no report exists, send a daily no-work message.
 
-Each `Test Pending` transition also sends one immediate message:
+The nightly runner sends one combined Discord message after the run if any `Test Pending` work was recorded:
 
 - `Work complete, awaiting review` for finished work
 - `Work paused, I have questions` when human input is required
