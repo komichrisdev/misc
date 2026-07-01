@@ -57,7 +57,7 @@ PY
   image="$status_dir/$state.png"
   [[ -f "$image" ]] || { echo "Missing Night Owl status image: $image" >&2; return 1; }
   post_with_retry -fsS -F "payload_json=$payload" -F "files[0]=@$image" "$DISCORD_WEBHOOK_URL" >/dev/null ||
-    post_with_retry -fsS -F "payload_json=$fallback" "$DISCORD_WEBHOOK_URL" >/dev/null
+    post_with_retry -fsS -H 'Content-Type: application/json' --data "$fallback" "$DISCORD_WEBHOOK_URL" >/dev/null
 }
 
 post_with_retry() {

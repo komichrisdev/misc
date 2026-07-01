@@ -22,11 +22,13 @@ capture_dir = Path(os.environ["NIGHT_OWL_CAPTURE_DIR"])
 args = sys.argv[1:]
 payload = ""
 image = ""
-for arg in args:
+for index, arg in enumerate(args):
     if arg.startswith("payload_json="):
         payload = arg.removeprefix("payload_json=")
     elif arg.startswith("files[0]=@"):
         image = Path(arg.removeprefix("files[0]=@")).name
+    elif arg == "--data":
+        payload = args[index + 1]
 
 count_file = capture_dir / "count"
 count = int(count_file.read_text(encoding="utf-8")) if count_file.exists() else 0
@@ -103,11 +105,13 @@ capture_dir = Path(os.environ["NIGHT_OWL_CAPTURE_DIR"])
 args = sys.argv[1:]
 payload = ""
 image = ""
-for arg in args:
+for index, arg in enumerate(args):
     if arg.startswith("payload_json="):
         payload = arg.removeprefix("payload_json=")
     elif arg.startswith("files[0]=@"):
         image = Path(arg.removeprefix("files[0]=@")).name
+    elif arg == "--data":
+        payload = args[index + 1]
 
 count_file = capture_dir / "count"
 count = int(count_file.read_text(encoding="utf-8")) if count_file.exists() else 0
