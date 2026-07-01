@@ -16,6 +16,23 @@ def truncate(text, limit=1850):
     return text[:head].rstrip() + "\n...\n" + text[-tail:].lstrip()
 
 
+def copy_paste_block(report):
+    marker = "## Copy/Paste Fix Request"
+    start = report.find(marker)
+    if start == -1:
+        return ""
+    block_start = report.find("```text", start)
+    if block_start == -1:
+        return ""
+    block_start = report.find("\n", block_start)
+    if block_start == -1:
+        return ""
+    block_end = report.find("\n```", block_start)
+    if block_end == -1:
+        return ""
+    return report[block_start + 1:block_end].strip()
+
+
 def image_for(overall, status):
     name = "attention.png" if overall == "attention" or status != "0" else "ok.png" if overall == "ok" else "warn.png"
     return Path(__file__).parent.parent / "assets" / name
@@ -37,6 +54,8 @@ def self_test():
     assert image_for("ok", "0").name == "ok.png"
     assert image_for("warning", "0").name == "warn.png"
     assert image_for("ok", "1").name == "attention.png"
+    report = "# Title\n\n## Copy/Paste Fix Request\n\n```text\nline 1\nline 2\n```\n"
+    assert copy_paste_block(report) == "line 1\nline 2"
     body, boundary = multipart({"content": "test"}, image_for("ok", "0"))
     assert boundary.encode() in body and b'filename="ok.png"' in body and b'"content": "test"' in body
     print("Plex Guard Discord reporter self-test passed")
@@ -67,7 +86,12 @@ def main():
             audit = {}
     overall = audit.get("summary", {}).get("overall", "unknown")
     title = "Plex Guard needs attention" if overall == "attention" or status != "0" else "Plex Guard daily clean report" if overall == "ok" else "Plex Guard daily warnings"
-    body = f"**{title}**\nOverall: `{overall}`\n\n{truncate(report)}"
+    copy_block = copy_paste_block(report)
+    body = f"**{title}**\nOverall: `{overall}`"
+    if copy_block:
+        body += f"\n\n```text\n{copy_block}\n```"
+    else:
+        body += f"\n\n{truncate(report)}"
     image = image_for(overall, status)
     if not image.is_file():
         print(f"discord report failed: missing image {image}", file=sys.stderr)
