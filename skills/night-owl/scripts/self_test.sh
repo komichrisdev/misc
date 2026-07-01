@@ -115,15 +115,16 @@ count += 1
 count_file.write_text(str(count), encoding="utf-8")
 (capture_dir / f"{count}.json").write_text(payload, encoding="utf-8")
 (capture_dir / f"{count}.file").write_text(image, encoding="utf-8")
-if os.environ.get("NIGHT_OWL_CURL_FAIL_ONCE") == "1" and count == 1:
+if os.environ.get("NIGHT_OWL_CURL_FAIL_MULTIPART") == "1" and image:
     raise SystemExit(6)
 PY
 EOF
 chmod +x "$retry_state/curl"
 printf '## Retry Report\n\n- Retry path test.\n' >"$retry_state/report.md"
-NIGHT_OWL_CAPTURE_DIR="$retry_state/captures" NIGHT_OWL_STATE_DIR="$retry_state" NIGHT_OWL_CONFIG_FILE="$state_dir/env" NIGHT_OWL_CURL="$retry_state/curl" NIGHT_OWL_CURL_FAIL_ONCE=1 \
+NIGHT_OWL_CAPTURE_DIR="$retry_state/captures" NIGHT_OWL_STATE_DIR="$retry_state" NIGHT_OWL_CONFIG_FILE="$state_dir/env" NIGHT_OWL_CURL="$retry_state/curl" NIGHT_OWL_CURL_FAIL_MULTIPART=1 \
   "$script_dir/send_report.sh"
-grep -qx '2' "$retry_state/captures/count"
+grep -qx '3' "$retry_state/captures/count"
+[[ ! -s "$retry_state/captures/3.file" ]]
 compgen -G "$retry_state/sent/*.md" >/dev/null
 
 echo "Night Owl self-test passed"

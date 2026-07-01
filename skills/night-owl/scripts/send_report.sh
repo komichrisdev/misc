@@ -14,7 +14,7 @@ source "$config_file"
 : "${DISCORD_WEBHOOK_URL:?DISCORD_WEBHOOK_URL is required}"
 
 send_message() {
-  local image payload state
+  local fallback image payload state
   local -a message
   mapfile -t message < <(python3 - "$1" "$2" <<'PY'
 import json
@@ -48,13 +48,16 @@ payload = {
 }
 print(state)
 print(json.dumps(payload))
+print(json.dumps({"content": content}))
 PY
   )
   state=${message[0]}
   payload=${message[1]}
+  fallback=${message[2]}
   image="$status_dir/$state.png"
   [[ -f "$image" ]] || { echo "Missing Night Owl status image: $image" >&2; return 1; }
-  post_with_retry -fsS -F "payload_json=$payload" -F "files[0]=@$image" "$DISCORD_WEBHOOK_URL" >/dev/null
+  post_with_retry -fsS -F "payload_json=$payload" -F "files[0]=@$image" "$DISCORD_WEBHOOK_URL" >/dev/null ||
+    post_with_retry -fsS -F "payload_json=$fallback" "$DISCORD_WEBHOOK_URL" >/dev/null
 }
 
 post_with_retry() {
