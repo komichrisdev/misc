@@ -54,7 +54,18 @@ PY
   payload=${message[1]}
   image="$status_dir/$state.png"
   [[ -f "$image" ]] || { echo "Missing Night Owl status image: $image" >&2; return 1; }
-  "$curl_bin" -fsS -F "payload_json=$payload" -F "files[0]=@$image" "$DISCORD_WEBHOOK_URL" >/dev/null
+  post_with_retry -fsS -F "payload_json=$payload" -F "files[0]=@$image" "$DISCORD_WEBHOOK_URL" >/dev/null
+}
+
+post_with_retry() {
+  local attempt
+  for attempt in 1 2; do
+    if "$curl_bin" "$@"; then
+      return 0
+    fi
+    [[ $attempt -eq 2 ]] && return 1
+    sleep 1
+  done
 }
 
 if [[ ${1:-} == --test-pending ]]; then

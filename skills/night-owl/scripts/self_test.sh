@@ -34,6 +34,8 @@ count += 1
 count_file.write_text(str(count), encoding="utf-8")
 (capture_dir / f"{count}.json").write_text(payload, encoding="utf-8")
 (capture_dir / f"{count}.file").write_text(image, encoding="utf-8")
+if os.environ.get("NIGHT_OWL_CURL_FAIL_ONCE") == "1" and count == 1:
+    raise SystemExit(6)
 PY
 EOF
 chmod +x "$state_dir/curl"
@@ -86,5 +88,42 @@ if NIGHT_OWL_CAPTURE_DIR="$capture_dir" NIGHT_OWL_STATE_DIR="$runner_state" NIGH
   exit 1
 fi
 grep -q 'live Jira queue was not verified' "$runner_state"/sent/*.md
+
+retry_state="$state_dir/retry"
+mkdir -p "$retry_state/captures"
+cat >"$retry_state/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+python3 - "$@" <<'PY'
+from pathlib import Path
+import os
+import sys
+
+capture_dir = Path(os.environ["NIGHT_OWL_CAPTURE_DIR"])
+args = sys.argv[1:]
+payload = ""
+image = ""
+for arg in args:
+    if arg.startswith("payload_json="):
+        payload = arg.removeprefix("payload_json=")
+    elif arg.startswith("files[0]=@"):
+        image = Path(arg.removeprefix("files[0]=@")).name
+
+count_file = capture_dir / "count"
+count = int(count_file.read_text(encoding="utf-8")) if count_file.exists() else 0
+count += 1
+count_file.write_text(str(count), encoding="utf-8")
+(capture_dir / f"{count}.json").write_text(payload, encoding="utf-8")
+(capture_dir / f"{count}.file").write_text(image, encoding="utf-8")
+if os.environ.get("NIGHT_OWL_CURL_FAIL_ONCE") == "1" and count == 1:
+    raise SystemExit(6)
+PY
+EOF
+chmod +x "$retry_state/curl"
+printf '## Retry Report\n\n- Retry path test.\n' >"$retry_state/report.md"
+NIGHT_OWL_CAPTURE_DIR="$retry_state/captures" NIGHT_OWL_STATE_DIR="$retry_state" NIGHT_OWL_CONFIG_FILE="$state_dir/env" NIGHT_OWL_CURL="$retry_state/curl" NIGHT_OWL_CURL_FAIL_ONCE=1 \
+  "$script_dir/send_report.sh"
+grep -qx '2' "$retry_state/captures/count"
+compgen -G "$retry_state/sent/*.md" >/dev/null
 
 echo "Night Owl self-test passed"
