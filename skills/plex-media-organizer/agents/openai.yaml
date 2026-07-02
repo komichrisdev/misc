@@ -1,0 +1,7 @@
+interface:
+  display_name: "Plex Media Organizer"
+  short_description: "Clean Plex names and create report-matched Discord art"
+  default_prompt: "Use $plex-media-organizer to clean Plex media naming."
+
+policy:
+  allow_implicit_invocation: true
