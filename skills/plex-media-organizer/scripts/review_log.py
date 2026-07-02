@@ -537,7 +537,7 @@ def cmd_update(args: argparse.Namespace) -> int:
     if args.summary_md:
         write_text(Path(args.summary_md), summary_md)
     if args.report:
-        inject_report_sections(Path(args.report), [summary_md, missing_md])
+        inject_report_sections(Path(args.report), [missing_md])
     return 0
 
 

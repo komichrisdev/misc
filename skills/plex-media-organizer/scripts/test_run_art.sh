@@ -5,7 +5,35 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-printf '## Applied Changes\n\n- Test anime updated.\n' > "$tmp/report.md"
+cat > "$tmp/report.md" <<'MD'
+# Plex Media Organizer Daily Run
+
+Scope:
+- `/srv/media/anime/Test`
+
+Review plan:
+- Directories to review: 1
+
+Applied changes:
+- Test anime updated.
+
+Held changes:
+- None
+
+Errors:
+- None.
+
+Sources used:
+- https://example.invalid/source
+
+## Review Log
+
+- Log file: `/tmp/plex-media-organizer/review-log.json`
+
+## Missing Anime Episodes
+
+- Test anime season 01: missing episode 02
+MD
 
 cat > "$tmp/codex" <<'SH'
 #!/usr/bin/env bash
@@ -29,3 +57,6 @@ CAPTURE_FILE="$tmp/curl.args" \
 
 grep -Fq "files[0]=@$tmp/run-art.png" "$tmp/curl.args"
 grep -Fq 'attachment://run-art.png' "$tmp/curl.args"
+grep -Fq 'Applied changes:' "$tmp/curl.args"
+grep -Fq 'missing episode 02' "$tmp/curl.args"
+! grep -Eiq 'Scope:|Review plan:|Held changes:|Errors:|Sources used:|review-log.json' "$tmp/curl.args"

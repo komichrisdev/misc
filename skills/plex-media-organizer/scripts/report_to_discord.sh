@@ -83,13 +83,15 @@ def parse_sections(markdown_lines):
     preamble = []
 
     for line in markdown_lines:
-        if line.startswith("## "):
+        stripped = line.strip()
+        title = line if line.startswith("## ") or (line == stripped and stripped.endswith(":")) else None
+        if title:
             if current_title is None and preamble:
                 sections.append(("", preamble))
                 preamble = []
             elif current_title is not None:
                 sections.append((current_title, current_body))
-            current_title = line
+            current_title = title
             current_body = []
             continue
 
@@ -105,7 +107,12 @@ def parse_sections(markdown_lines):
     return sections
 
 def cleaned_body(body_lines):
-    body = [line.rstrip() for line in body_lines]
+    hidden = ("scope:", "review plan:", "sources used:")
+    body = [
+        line.rstrip()
+        for line in body_lines
+        if not line.strip().lstrip("-* ").strip().casefold().startswith(hidden)
+    ]
     while body and not body[0]:
         body.pop(0)
     while body and not body[-1]:
@@ -119,15 +126,21 @@ def section_is_empty(title, body_lines):
     non_blank = [line for line in body if line.strip()]
     if not non_blank:
         return True
-    if all(line == "- None." for line in non_blank):
+    if all(line.strip().lstrip("-* ").strip().casefold().rstrip(".") == "none" for line in non_blank):
         return True
     if title == "## RSS Sync" and non_blank == ["- No qBittorrent RSS rule updates were needed."]:
         return True
     return False
 
+def section_is_hidden(title):
+    name = title.lstrip("#").strip().rstrip(":").casefold()
+    return name == "scope" or name.startswith("review plan") or name.startswith("sources used") or name == "review log"
+
 if lines:
     rendered = []
     for title_line, body_lines in parse_sections(lines):
+        if title_line and section_is_hidden(title_line):
+            continue
         if title_line and section_is_empty(title_line, body_lines):
             continue
         body = cleaned_body(body_lines)

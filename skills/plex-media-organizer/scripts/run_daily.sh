@@ -163,6 +163,8 @@ Requirements:
 - Do not guess uncertain anime specials, OVAs, movies, alternate cuts, absolute episode numbering, collections, duplicate candidates, or weak web matches.
 - If uncertain, leave files unchanged and record the reason.
 - Write the final report to ${SANDBOX_REPORT_FILE}. Include applied changes, held changes, and any errors.
+- Keep the report concise. Omit scope, review-plan details, sources used, and review-log paths.
+- Omit empty sections instead of writing `None`.
 - Write machine-readable RSS auto-download rule updates to ${SANDBOX_RSS_UPDATES_FILE} as JSON with schema:
   {"version":1,"rss_rule_updates":[{"rule_name":"...","save_path":"...","source_rule":"optional","must_contain":"optional","must_not_contain":"optional","assigned_category":"optional","use_auto_tmm":false,"reset_history":false}]}
 - Only include RSS updates when you made a high-confidence directory rename or moved new-season downloads into a Season NN folder and qBittorrent should follow that new path.
