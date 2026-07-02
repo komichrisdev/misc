@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Colage"
+  short_description: "Triage and delegate substantial requests"
+  default_prompt: "Use $codex-colage to triage this request and delegate substantial work efficiently."
