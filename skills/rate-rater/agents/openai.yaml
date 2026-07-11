@@ -1,0 +1,4 @@
+interface:
+  display_name: "Rate Rater"
+  short_description: "Scope check, running log, and hourly resume queue for Codex tasks"
+  default_prompt: "Open with a scope-vs-remaining-5h/weekly-usage check. If the task looks larger than the remaining budget, create and maintain a log while working. If the task is blocked by usage limits, record the next step and let the hourly run rebuild the resume queue from the log."
