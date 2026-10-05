@@ -1,6 +1,6 @@
-# Beholder
+﻿# Beholder
 
-A small, standalone Windows image-comparison app. Drop images onto an empty canvas; their tiles rebalance automatically around their proportions. No Hermes integration, accounts, uploads, telemetry, or network access.
+A small, standalone Windows image-comparison app for artists and reviewers: compare references, check perspective and isometric construction, and export the whole canvas as one JPEG. Drop images onto an empty canvas; their tiles rebalance automatically around their proportions. No Hermes integration, accounts, uploads, telemetry, or network access.
 
 ![Beholder image comparison canvas](docs/screenshot-color.png)
 
@@ -26,6 +26,10 @@ The executable is unsigned. Windows may display a SmartScreen warning for a newl
 - Import errors appear briefly over the canvas without reserving layout space. Click an error to dismiss it.
 - Hover over a filename for its original pixel dimensions and full filename.
 
+- **Save JPG** / **Ctrl+S** saves every image as a single composite JPEG at the current window resolution, preserving each tile's zoom, pan and the B/W filter. All images are included even while one is focused; captions and overlay markers never appear.
+- **Perspective** / **Ctrl+P**: each click places a vanishing point at that spot and instantly draws a horizon plus a full set of X/Y/Z construction lines rising from the bottom of the image to the point; each additional point adds its own converging set (one-point, two-point, three-point…). Drag to move a point, Delete removes the selected point, toggling off keeps your points.
+- **Isometric** / **Ctrl+I**: transparent isometric grid with checkerboard overlay on every image. Each click cycles **off → 2:1 → 30° → off**; Ctrl+I toggles on/off directly.
+- **Link views** additionally copies the selected image's vanishing points to every image while linked; edits stay in sync.
 ## Supported inputs and boundaries
 
 PNG, JPEG, BMP, GIF, TIFF and ICO use Windows' built-in image decoders. **WebP is built in**: lossy, lossless, transparency and the first frame of animated WebP are supported without installing a Windows codec. AVIF is optional and requires a compatible Windows imaging codec; unsupported files produce a visible error. SVG, RAW, PSD, PDF and video are not supported.

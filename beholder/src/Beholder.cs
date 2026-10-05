@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -39,6 +39,9 @@ namespace Beholder
         public bool EqualTiles { get; private set; }
         public bool LinkViews { get; private set; }
         public bool Monochrome { get; private set; }
+        public bool PerspectiveEnabled { get; private set; }
+        public bool IsometricEnabled { get; private set; }
+        public double IsometricAngleDegrees { get; private set; }
         public string LastMessage { get; private set; }
         public ImageTile FocusedTile { get; private set; }
         private readonly Dictionary<string, int> pending = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -51,6 +54,10 @@ namespace Beholder
         private readonly Button layoutButton;
         private readonly Button linkButton;
         private readonly Button monochromeButton;
+        private readonly Button perspectiveButton;
+        private readonly Button isometricButton;
+        private int angleIndex = 0;
+        private static readonly double[] AnglePresets = new[] { 26.565, 30 };
         private ImageTile selected;
         private int importGeneration;
         private int clipboardNumber;
@@ -83,25 +90,33 @@ namespace Beholder
                 DwmSetWindowAttribute(new System.Windows.Interop.WindowInteropHelper(this).Handle, 20, ref enabled, 4);
             };
             var root = new Grid();
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(64) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition());
             Content = root;
-            var bar = new DockPanel { LastChildFill = false, Margin = new Thickness(18, 10, 14, 10) };
+            var bar = new Grid { Margin = new Thickness(18, 10, 14, 10), MinHeight = 44 };
+            bar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            bar.ColumnDefinitions.Add(new ColumnDefinition());
             Grid.SetRow(bar, 0); root.Children.Add(bar);
             var brand = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             brand.Children.Add(Eye(28, Accent));
             brand.Children.Add(new TextBlock { Text = "Beholder", FontWeight = FontWeights.SemiBold, FontSize = 19, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-            DockPanel.SetDock(brand, Dock.Left); bar.Children.Add(brand);
-            var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            DockPanel.SetDock(actions, Dock.Right); bar.Children.Add(actions);
+            Grid.SetColumn(brand, 0); bar.Children.Add(brand);
+            var actions = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(12, 0, 0, 0) };
+            Grid.SetColumn(actions, 1); bar.Children.Add(actions);
             actions.Children.Add(ActionButton("+ Add images", "Choose one or more images (Ctrl+O)", async delegate { await PickFilesAsync(); }, true));
+            actions.Children.Add(ActionButton("Save JPG", "Save every image as one composite JPEG (Ctrl+S)", delegate { PickSave(); }));
             layoutButton = ActionButton("Auto tiles", "Switch between aspect-aware tiles and equal-size comparison cells", delegate { SetEqual(!EqualTiles); });
             actions.Children.Add(layoutButton);
             actions.Children.Add(ActionButton("Fit all", "Reset zoom and pan (Ctrl+0)", delegate { ResetAll(); }));
-            linkButton = ActionButton("Link views", "Zoom and pan all images together (Ctrl+L)", delegate { SetLink(!LinkViews); });
+            linkButton = ActionButton("Link views", "Link zoom, pan, and perspective points. Enabling copies the selected image's points to every image (Ctrl+L)", delegate { SetLink(!LinkViews); });
             actions.Children.Add(linkButton);
             monochromeButton = ActionButton("B/W", "Toggle black and white for every image (Ctrl+B)", async delegate { await SetMonochromeAsync(!Monochrome); });
             actions.Children.Add(monochromeButton);
+            perspectiveButton = ActionButton("Perspective", "Click image: add Z, then X, then Y vanishing points; drag to move; Delete removes selected point. Toggle preserves points (Ctrl+P).", delegate { SetPerspective(!PerspectiveEnabled); });
+            actions.Children.Add(perspectiveButton);
+            isometricButton = ActionButton("Isometric", "Click cycles: off, 2:1 grid, 30 degree grid, off. Ctrl+I also toggles on/off.", delegate { CycleIsometric(); });
+            IsometricAngleDegrees = 26.565;
+            actions.Children.Add(isometricButton);
             actions.Children.Add(ActionButton("Clear", "Remove all tiles, never delete original files (Ctrl+Shift+X)", delegate { ClearImages(); }));
             canvasBorder.Margin = new Thickness(12, 0, 12, 8);
             canvasBorder.Background = canvasBackground;
@@ -157,7 +172,7 @@ namespace Beholder
 
         public static Button ActionButton(string text, string hint, Action action, bool primary = false)
         {
-            var b = new Button { Content = text, ToolTip = hint, Height = 38, MinWidth = 50, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(5, 0, 0, 0), Foreground = primary ? Paint("#142034") : Text, Background = primary ? Accent : Paint("#292F38"), BorderBrush = primary ? Accent : Paint("#3D4653"), BorderThickness = new Thickness(1), Cursor = Cursors.Hand, FontSize = 12 };
+            var b = new Button { Content = text, ToolTip = hint, Height = 38, MinWidth = 50, Padding = new Thickness(12, 0, 12, 0), Margin = new Thickness(5, 2, 0, 2), Foreground = primary ? Paint("#142034") : Text, Background = primary ? Accent : Paint("#292F38"), BorderBrush = primary ? Accent : Paint("#3D4653"), BorderThickness = new Thickness(1), Cursor = Cursors.Hand, FontSize = 12 };
             var template = new ControlTemplate(typeof(Button));
             var border = new FrameworkElementFactory(typeof(Border));
             border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
@@ -175,6 +190,17 @@ namespace Beholder
             b.Click += delegate { action(); };
             System.Windows.Automation.AutomationProperties.SetName(b, text);
             return b;
+        }
+
+        public void SaveComposite(string path) { CompositeExporter.Save(this, path); }
+
+        private void PickSave()
+        {
+            if (Tiles.Count == 0) { SetStatus("Add images before saving a composite.", true); return; }
+            var dialog = new SaveFileDialog { Title = "Save composite JPEG", Filter = "JPEG image|*.jpg;*.jpeg", DefaultExt = ".jpg", AddExtension = true, FileName = "Beholder-composite.jpg", OverwritePrompt = true };
+            if (dialog.ShowDialog(this) != true) return;
+            try { SaveComposite(dialog.FileName); SetStatus("Saved " + System.IO.Path.GetFileName(dialog.FileName) + ". Originals stay untouched."); }
+            catch (Exception ex) { SetStatus("Could not save: " + ex.Message, true); }
         }
 
         private async Task PickFilesAsync()
@@ -229,9 +255,12 @@ namespace Beholder
         {
             if (Tiles.Count >= 64) { SetStatus("Canvas limit: 64 images.", true); return; }
             var tile = new ImageTile(item, this);
+            var linkSource = selected ?? Tiles.FirstOrDefault();
+            if (LinkViews && linkSource != null) tile.ReplacePerspectivePoints(linkSource.PerspectivePoints);
             Tiles.Add(tile); Workspace.Children.Add(tile);
             FocusedTile = null; Select(tile); UpdateEmptyState(); Reflow();
             ApplyCurrentFilter(tile);
+            if (LinkViews && linkSource != null) tile.SetNormalizedView(linkSource.Zoom, linkSource.NormalizedPan);
         }
 
         public void Select(ImageTile tile)
@@ -262,7 +291,45 @@ namespace Beholder
         public void SetLink(bool enabled)
         {
             LinkViews = enabled; linkButton.Content = enabled ? "Linked" : "Link views"; linkButton.BorderBrush = enabled ? Accent : Paint("#3D4653");
-            if (enabled && selected != null) ViewChanged(selected);
+            if (enabled && selected != null) { ViewChanged(selected); PerspectiveChanged(selected); }
+        }
+
+        public void SetIsometric(bool enabled)
+        {
+            IsometricEnabled = enabled;
+            isometricButton.Content = IsometricLabel(enabled ? IsometricAngleDegrees : 0);
+            isometricButton.BorderBrush = enabled ? Accent : Paint("#3D4653");
+            foreach (var tile in Tiles) tile.RefreshPerspective();
+        }
+
+        public void CycleIsometric()
+        {
+            if (!IsometricEnabled) { SetIsometric(true); return; }
+            angleIndex = (angleIndex + 1) % AnglePresets.Length;
+            if (angleIndex == 0) { SetIsometric(false); IsometricAngleDegrees = AnglePresets[0]; return; }
+            SetIsometricAngle(AnglePresets[angleIndex]);
+        }
+
+        public void SetIsometricAngle(double degrees)
+        {
+            if (double.IsNaN(degrees) || double.IsInfinity(degrees) || degrees < 5 || degrees > 85) return;
+            IsometricAngleDegrees = degrees;
+            if (IsometricEnabled) isometricButton.Content = IsometricLabel(degrees);
+            foreach (var tile in Tiles) tile.RefreshPerspective();
+        }
+
+        private static string IsometricLabel(double degrees)
+        {
+            if (degrees <= 0) return "Isometric";
+            return "Isometric \u00b7 " + (Math.Abs(degrees - 26.565) < 0.01 ? "2:1" : degrees.ToString("0") + (char)176);
+        }
+
+        public void SetPerspective(bool enabled)
+        {
+            PerspectiveEnabled = enabled;
+            perspectiveButton.Content = enabled ? "Perspective on" : "Perspective";
+            perspectiveButton.BorderBrush = enabled ? Accent : Paint("#3D4653");
+            foreach (var tile in Tiles) { tile.EndPerspectiveGesture(); tile.RefreshPerspective(); }
         }
 
         private async void ApplyCurrentFilter(ImageTile tile)
@@ -308,6 +375,13 @@ namespace Beholder
             if (!LinkViews) return;
             Vector normalized = source.NormalizedPan;
             foreach (var t in Tiles) if (t != source) t.SetNormalizedView(source.Zoom, normalized);
+        }
+
+        public void PerspectiveChanged(ImageTile source)
+        {
+            if (!LinkViews) return;
+            var snapshot = source.PerspectivePoints.ToArray();
+            foreach (var tile in Tiles) if (tile != source) tile.ReplacePerspectivePoints(snapshot);
         }
 
         private void UpdateEmptyState()
@@ -371,13 +445,21 @@ namespace Beholder
         private void OnKey(object sender, KeyEventArgs e)
         {
             bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
-            if (ctrl && e.Key == Key.O) { OpenFromKey(); e.Handled = true; }
+            if (ctrl && e.Key == Key.S) { PickSave(); e.Handled = true; }
+            else if (ctrl && e.Key == Key.O) { OpenFromKey(); e.Handled = true; }
             else if (ctrl && e.Key == Key.V) { Paste(); e.Handled = true; }
             else if (ctrl && (e.Key == Key.D0 || e.Key == Key.NumPad0)) { ResetAll(); e.Handled = true; }
             else if (ctrl && e.Key == Key.B) { ToggleMonochromeFromKey(); e.Handled = true; }
+            else if (ctrl && e.Key == Key.I) { SetIsometric(!IsometricEnabled); e.Handled = true; }
+            else if (ctrl && e.Key == Key.P) { SetPerspective(!PerspectiveEnabled); e.Handled = true; }
             else if (ctrl && e.Key == Key.L) { SetLink(!LinkViews); e.Handled = true; }
             else if (ctrl && e.Key == Key.X && (Keyboard.Modifiers & ModifierKeys.Shift) != 0) { ClearImages(); e.Handled = true; }
-            else if (e.Key == Key.Delete && selected != null) { Remove(selected); e.Handled = true; }
+            else if (e.Key == Key.Delete && selected != null)
+            {
+                if (PerspectiveEnabled) selected.DeleteSelectedPerspectivePoint();
+                else Remove(selected);
+                e.Handled = true;
+            }
             else if (e.Key == Key.F11) { ToggleFullscreen(); e.Handled = true; }
             else if (e.Key == Key.Escape) { if (FocusedTile != null) { FocusedTile = null; Reflow(); } else if (fullscreen) ToggleFullscreen(); e.Handled = true; }
         }
@@ -411,6 +493,79 @@ namespace Beholder
         public double Zoom { get; private set; }
         public double PanX { get; private set; }
         public double PanY { get; private set; }
+        private readonly List<Point> perspectivePoints = new List<Point>();
+        private int selectedPerspectivePoint = -1;
+        private bool draggingPerspectivePoint;
+        private readonly TileOverlay perspectiveOverlay;
+        public IList<Point> PerspectivePoints { get { return perspectivePoints.AsReadOnly(); } }
+        public int SelectedPerspectivePoint { get { return selectedPerspectivePoint; } }
+        public Rect ImageBounds { get { return CompositeExporter.ImageBounds(new Size(Viewport.ActualWidth, Viewport.ActualHeight), Item.Aspect, Zoom, NormalizedPan); } }
+        public Point ImageToViewport(Point normalized)
+        {
+            Rect bounds = ImageBounds;
+            return new Point(bounds.X + normalized.X * bounds.Width, bounds.Y + normalized.Y * bounds.Height);
+        }
+        public Point ViewportToImage(Point position)
+        {
+            Rect bounds = ImageBounds;
+            return new Point((position.X - bounds.X) / bounds.Width, (position.Y - bounds.Y) / bounds.Height);
+        }
+        private static void ValidatePoint(Point point)
+        {
+            if (double.IsNaN(point.X) || double.IsNaN(point.Y) || double.IsInfinity(point.X) || double.IsInfinity(point.Y))
+                throw new ArgumentException("Vanishing points must have finite coordinates.");
+        }
+        public void AddPerspectivePoint(Point point)
+        {
+            ValidatePoint(point); owner.Select(this); perspectivePoints.Add(point);
+            selectedPerspectivePoint = perspectivePoints.Count - 1; RefreshPerspective(); owner.PerspectiveChanged(this);
+        }
+        public void MovePerspectivePoint(int index, Point point)
+        {
+            ValidatePoint(point); if (index < 0 || index >= perspectivePoints.Count) return;
+            perspectivePoints[index] = point; selectedPerspectivePoint = index; RefreshPerspective(); owner.PerspectiveChanged(this);
+        }
+        public void DeleteSelectedPerspectivePoint()
+        {
+            if (selectedPerspectivePoint < 0 || selectedPerspectivePoint >= perspectivePoints.Count) return;
+            perspectivePoints.RemoveAt(selectedPerspectivePoint); selectedPerspectivePoint = -1;
+            EndPerspectiveGesture(); RefreshPerspective(); owner.PerspectiveChanged(this);
+        }
+        internal void ReplacePerspectivePoints(IEnumerable<Point> points)
+        {
+            var snapshot = points.ToArray();
+            perspectivePoints.Clear(); perspectivePoints.AddRange(snapshot);
+            selectedPerspectivePoint = -1; RefreshPerspective();
+        }
+        public bool BeginPerspectiveGesture(Point at)
+        {
+            if (!owner.PerspectiveEnabled) return false;
+            owner.Select(this); selectedPerspectivePoint = -1;
+            double nearest = 12;
+            for (int i = 0; i < perspectivePoints.Count; i++)
+            {
+                double distance = (ImageToViewport(perspectivePoints[i]) - at).Length;
+                if (distance <= nearest) { nearest = distance; selectedPerspectivePoint = i; }
+            }
+            if (selectedPerspectivePoint < 0)
+            {
+                if (!ImageBounds.Contains(at)) { RefreshPerspective(); return false; }
+                AddPerspectivePoint(ViewportToImage(at));
+            }
+            draggingPerspectivePoint = true; RefreshPerspective(); return true;
+        }
+        public void UpdatePerspectiveGesture(Point at)
+        {
+            if (draggingPerspectivePoint && owner.PerspectiveEnabled) MovePerspectivePoint(selectedPerspectivePoint, ViewportToImage(at));
+        }
+        public void EndPerspectiveGesture()
+        {
+            draggingPerspectivePoint = false; panning = false;
+            if (Viewport.IsMouseCaptured) Viewport.ReleaseMouseCapture();
+            Viewport.Cursor = owner.PerspectiveEnabled ? Cursors.Cross : Cursors.Hand;
+        }
+        public void RefreshPerspective() { perspectiveOverlay.InvalidateVisual(); Viewport.Cursor = owner.PerspectiveEnabled ? Cursors.Cross : Cursors.Hand; }
+
         private readonly Image image = new Image();
         private readonly ScaleTransform scale = new ScaleTransform(1, 1);
         private readonly TranslateTransform translate = new TranslateTransform();
@@ -425,6 +580,7 @@ namespace Beholder
         public ImageTile(LoadedImage item, BeholderWindow window)
         {
             Item = item; owner = window; Zoom = 1;
+            perspectiveOverlay = new TileOverlay(this, window) { IsHitTestVisible = false };
             BorderBrush = BeholderWindow.Paint("#35404E"); BorderThickness = new Thickness(1); CornerRadius = new CornerRadius(7);
             Background = window.CanvasBackground; ClipToBounds = true;
             var grid = new Grid(); grid.RowDefinitions.Add(new RowDefinition()); grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TileLayout.CaptionHeight) }); Child = grid;
@@ -433,7 +589,7 @@ namespace Beholder
             image.Source = item.Bitmap; image.Stretch = Stretch.Uniform; image.Margin = new Thickness(6);
             image.RenderTransformOrigin = new Point(0.5, 0.5);
             var transforms = new TransformGroup(); transforms.Children.Add(scale); transforms.Children.Add(translate); image.RenderTransform = transforms;
-            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality); Viewport.Children.Add(image);
+            RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality); Viewport.Children.Add(image); Viewport.Children.Add(perspectiveOverlay);
             System.Windows.Automation.AutomationProperties.SetName(image, item.Name);
             var header = new DockPanel { Background = BeholderWindow.Paint("#242A33"), LastChildFill = true, Cursor = Cursors.SizeAll };
             Grid.SetRow(header, 1); grid.Children.Add(header);
@@ -452,18 +608,28 @@ namespace Beholder
             };
             Viewport.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
             {
-                owner.Select(this);
+                owner.Select(this); owner.Focus();
+                if (owner.PerspectiveEnabled)
+                {
+                    if (e.ClickCount == 1 && BeginPerspectiveGesture(e.GetPosition(Viewport))) Viewport.CaptureMouse();
+                    e.Handled = true; return;
+                }
                 if (e.ClickCount == 2) { owner.ToggleFocus(this); e.Handled = true; return; }
                 panning = true; dragStart = e.GetPosition(Viewport); initialPan = new Vector(PanX, PanY); Viewport.CaptureMouse(); Viewport.Cursor = Cursors.ScrollAll; e.Handled = true;
             };
             Viewport.MouseMove += delegate(object sender, MouseEventArgs e)
             {
+                if (draggingPerspectivePoint)
+                {
+                    if (e.LeftButton == MouseButtonState.Pressed) UpdatePerspectiveGesture(e.GetPosition(Viewport));
+                    e.Handled = true; return;
+                }
                 if (!panning || e.LeftButton != MouseButtonState.Pressed) return;
                 Vector delta = e.GetPosition(Viewport) - dragStart;
                 SetView(Zoom, initialPan.X + delta.X, initialPan.Y + delta.Y, true);
             };
-            Viewport.MouseLeftButtonUp += delegate { panning = false; Viewport.ReleaseMouseCapture(); Viewport.Cursor = Cursors.Hand; };
-            Viewport.LostMouseCapture += delegate { panning = false; Viewport.Cursor = Cursors.Hand; };
+            Viewport.MouseLeftButtonUp += delegate { EndPerspectiveGesture(); };
+            Viewport.LostMouseCapture += delegate { draggingPerspectivePoint = false; panning = false; Viewport.Cursor = owner.PerspectiveEnabled ? Cursors.Cross : Cursors.Hand; };
             Viewport.SizeChanged += delegate { SetView(Zoom, PanX, PanY, false); };
             header.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { owner.Select(this); headerStart = e.GetPosition(header); headerPressed = true; };
             header.MouseLeftButtonUp += delegate { headerPressed = false; };
@@ -494,7 +660,11 @@ namespace Beholder
             if (owner.Monochrome && owner.Tiles.Contains(this)) image.Source = grey;
         }
 
-        public void SetSelected(bool value) { BorderBrush = value ? BeholderWindow.Accent : BeholderWindow.Paint("#35404E"); }
+        public void SetSelected(bool value)
+        {
+            BorderBrush = value ? BeholderWindow.Accent : BeholderWindow.Paint("#35404E");
+            if (!value) { selectedPerspectivePoint = -1; EndPerspectiveGesture(); RefreshPerspective(); }
+        }
 
         private Size FitSize
         {
@@ -526,6 +696,7 @@ namespace Beholder
             PanX = Math.Max(-maxX, Math.Min(maxX, panX)); PanY = Math.Max(-maxY, Math.Min(maxY, panY));
             scale.ScaleX = Zoom; scale.ScaleY = Zoom; translate.X = PanX; translate.Y = PanY;
             zoomText.Text = Zoom <= 1.001 ? "Fit" : Zoom.ToString("0.0") + "x";
+            RefreshPerspective();
             if (notify) owner.ViewChanged(this);
         }
     }

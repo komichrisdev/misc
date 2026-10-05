@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -148,6 +148,189 @@ namespace Beholder
             await Case("black and white switch off restores original colors exactly", async delegate { await window.SetMonochromeAsync(false); Check(!window.Monochrome && window.Tiles.All(t => object.ReferenceEquals(t.DisplayBitmap, t.Item.Bitmap)), "Color source not restored"); });
             await Case("newly dropped WebP inherits active global filter", async delegate { await window.SetMonochromeAsync(true); await window.AddFilesAsync(new[] { WebPFixture("lossless.webp") }); var wait = Stopwatch.StartNew(); while (!IsGrey(window.Tiles.Last().DisplayBitmap) && wait.Elapsed.TotalSeconds < 5) await Task.Delay(20); Check(IsGrey(window.Tiles.Last().DisplayBitmap), "New WebP ignored filter"); await window.SetMonochromeAsync(false); window.ClearImages(); });
             await Case("rapid filter toggles never leave stale monochrome views", async delegate { await window.AddFilesAsync(new[] { wide, square }); var pending = window.SetMonochromeAsync(true); await window.SetMonochromeAsync(false); await pending; Check(window.Tiles.All(t => object.ReferenceEquals(t.DisplayBitmap, t.Item.Bitmap)), "Stale filter completion replaced original colors"); window.ClearImages(); });
+            await Case("composite JPEG exports every image and excludes focus UI", async delegate
+            {
+                window.ClearImages(); await window.AddFilesAsync(new[] { wide, portrait, square }); Pump();
+                var method = typeof(BeholderWindow).GetMethod("SaveComposite");
+                Check(method != null, "Composite JPEG save feature is missing");
+                string path = Path.Combine(evidence, "composite-clean.jpg");
+                method.Invoke(window, new object[] { path });
+                var saved = ImageLoader.Load(path);
+                Check(saved.Width == (int)Math.Ceiling(window.Workspace.ActualWidth) && saved.Height == (int)Math.Ceiling(window.Workspace.ActualHeight), "Composite dimensions wrong");
+                var before = Hash(path); window.ToggleFocus(window.Tiles[1]); Pump();
+                method.Invoke(window, new object[] { path });
+                Check(before.SequenceEqual(Hash(path)), "Focus omitted images or changed composite");
+                Check(window.FocusedTile == window.Tiles[1], "Export disturbed focus");
+                window.ToggleFocus(window.Tiles[1]); Pump(); window.ClearImages();
+            });
+            await Case("perspective mode toggle preserves placed image-relative vanishing points", async delegate
+            {
+                window.ClearImages(); await window.AddFilesAsync(new[] { wide, portrait }); Pump();
+                var mode = typeof(BeholderWindow).GetMethod("SetPerspective");
+                Check(mode != null, "Perspective mode is missing");
+                mode.Invoke(window, new object[] { true });
+                var add = typeof(ImageTile).GetMethod("AddPerspectivePoint");
+                var points = typeof(ImageTile).GetProperty("PerspectivePoints");
+                Check(add != null && points != null, "Vanishing point editing is missing");
+                var tile = window.Tiles[0]; add.Invoke(tile, new object[] { new Point(0.3, 0.4) });
+                mode.Invoke(window, new object[] { false }); mode.Invoke(window, new object[] { true });
+                var saved = (IList<Point>)points.GetValue(tile, null);
+                Check(saved.Count == 1 && saved[0] == new Point(0.3, 0.4), "Toggle erased or moved a vanishing point");
+                mode.Invoke(window, new object[] { false }); window.ClearImages();
+            });
+            await Case("perspective editing moves and deletes points without deleting tiles", async delegate
+            {
+                window.ClearImages(); await window.AddFilesAsync(new[] { wide, portrait }); Pump(); window.SetPerspective(true);
+                var tile = window.Tiles[0]; tile.AddPerspectivePoint(new Point(0.25, 0.4));
+                var move = typeof(ImageTile).GetMethod("MovePerspectivePoint");
+                Check(move != null, "Vanishing point dragging is missing");
+                move.Invoke(tile, new object[] { 0, new Point(0.6, 0.3) });
+                Check(tile.PerspectivePoints[0] == new Point(0.6, 0.3), "Drag did not move point");
+                window.Select(tile);
+                var key = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Delete);
+                key.RoutedEvent = Keyboard.PreviewKeyDownEvent; window.RaiseEvent(key);
+                Check(key.Handled && tile.PerspectivePoints.Count == 0 && window.Tiles.Count == 2, "Delete removed image instead of point");
+                window.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Delete) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+                Check(window.Tiles.Count == 2, "Delete without selected VP removed image in perspective mode");
+                
+            });
+            await Case("linked perspective copies edits to every image and unlinks independently", async delegate
+            {
+                window.ClearImages(); await window.AddFilesAsync(new[] { wide, portrait }); Pump(); window.SetPerspective(true);
+                var first = window.Tiles[0]; var second = window.Tiles[1];
+                first.AddPerspectivePoint(new Point(0.2, 0.4)); first.AddPerspectivePoint(new Point(0.8, 0.4));
+                window.Select(first); window.SetLink(true);
+                Check(second.PerspectivePoints.SequenceEqual(first.PerspectivePoints), "Link did not copy existing vanishing points");
+                second.MovePerspectivePoint(0, new Point(0.1, 0.3));
+                Check(first.PerspectivePoints[0] == new Point(0.1, 0.3), "Move from linked target did not propagate");
+                second.AddPerspectivePoint(new Point(0.5, 0.05));
+                Check(first.PerspectivePoints.Count == 3, "Linked add not propagated");
+                second.DeleteSelectedPerspectivePoint(); Check(first.PerspectivePoints.Count == 2, "Linked delete not propagated");
+                await window.AddFilesAsync(new[] { square }); Pump();
+                Check(window.Tiles[2].PerspectivePoints.SequenceEqual(first.PerspectivePoints), "Linked import did not inherit points");
+                window.SetLink(false); first.MovePerspectivePoint(0, new Point(0.3, 0.2));
+                Check(second.PerspectivePoints[0] == new Point(0.1, 0.3), "Unlinked lists are aliased");
+                first.DeleteSelectedPerspectivePoint();
+                Check(second.PerspectivePoints.Count == 2, "Unlinked deletion leaked");
+                window.Select(window.Tiles[2]); window.Tiles[2].DeleteSelectedPerspectivePoint();
+                window.ClearImages(); await window.AddFilesAsync(new[] { wide, portrait });
+                window.Tiles[1].AddPerspectivePoint(new Point(0.5, 0.5)); window.Select(window.Tiles[0]); window.SetLink(true);
+                Check(window.Tiles.All(t => t.PerspectivePoints.Count == 0), "Link with empty source retained stale points");
+                window.SetLink(false); window.SetPerspective(false); window.ClearImages();
+            });
+            await Case("perspective export renders horizon and one two three point axes only when enabled", async delegate
+            {
+                window.ClearImages(); window.SetLink(false); await window.AddFilesAsync(new[] { wide, portrait }); Pump();
+                var first = window.Tiles[0]; window.SetPerspective(false);
+                string clean = Path.Combine(evidence, "perspective-off.jpg"), overlay = Path.Combine(evidence, "perspective-on.jpg");
+                window.SaveComposite(clean); var cleanHash = Hash(clean);
+                first.AddPerspectivePoint(new Point(0.2, 0.35)); window.SetPerspective(true); window.SaveComposite(overlay);
+                Check(!Hash(overlay).SequenceEqual(cleanHash), "Perspective toggle on did not draw exported overlays");
+                var imageBounds = first.ImageBounds;
+                Check(imageBounds.Width > 10 && imageBounds.Height > 10, "Tile image bounds collapsed: " + imageBounds);
+                var geometryType = typeof(BeholderWindow).Assembly.GetType("Beholder.PerspectiveGeometry");
+                Check(geometryType != null, "Perspective grid geometry missing");
+                var geometryBuild = geometryType.GetMethod("Build");
+                var raw = ((System.Collections.IEnumerable)geometryBuild.Invoke(null, new object[] { first.PerspectivePoints, new Rect(0, 0, 800, 500) })).Cast<object>().ToArray();
+                Check(raw.Length > 0, "Geometry produced no lines");
+                var build = geometryType.GetMethod("Build");
+                for (int count = 1; count <= 4; count++)
+                {
+                    if (count == 2) first.AddPerspectivePoint(new Point(0.85, 0.5));
+                    if (count == 3) first.AddPerspectivePoint(new Point(0.5, 0.05));
+                    if (count == 4) first.AddPerspectivePoint(new Point(0.6, 0.7));
+                    var lines = ((System.Collections.IEnumerable)build.Invoke(null, new object[] { first.PerspectivePoints, new Rect(0, 0, 800, 500) })).Cast<object>().ToArray();
+                    var axes = lines.Select(l => (string)l.GetType().GetField("Axis").GetValue(l)).Distinct().ToArray();
+                    if (count >= 3) Check(new[] { "Horizon", "X", "Y", "Z" }.All(axes.Contains), "Missing horizon or XYZ at " + count + " points");
+                    else Check(new[] { "Horizon", "X", "Z" }.All(axes.Contains), "Missing horizon or ZX at " + count + " points");
+                    foreach (var line in lines)
+                    {
+                        Point a = (Point)line.GetType().GetField("A").GetValue(line), b = (Point)line.GetType().GetField("B").GetValue(line);
+                        if (!new Rect(-0.001, -0.001, 800.002, 500.002).Contains(a) || !new Rect(-0.001, -0.001, 800.002, 500.002).Contains(b))
+                            throw new InvalidOperationException("Grid escaped image bounds (" + count + " pts): " + a + " to " + b);
+                    }
+                    if (count >= 2)
+                    {
+                        var horizon = lines.Single(l => (string)l.GetType().GetField("Axis").GetValue(l) == "Horizon");
+                        Point a = (Point)horizon.GetType().GetField("A").GetValue(horizon), b = (Point)horizon.GetType().GetField("B").GetValue(horizon);
+                        Check(Math.Abs(a.Y - b.Y) > 1, "Two-point sloped horizon was forced horizontal");
+                    }
+                    window.SaveComposite(overlay);
+                }
+                window.SetPerspective(false); window.SaveComposite(clean);
+                Check(Hash(clean).SequenceEqual(cleanHash) && first.PerspectivePoints.Count == 4, "Toggle off altered clean export or erased points");
+                window.SetPerspective(true); window.SaveComposite(overlay); var before = Hash(overlay);
+                window.Select(window.Tiles[1]); window.SaveComposite(overlay);
+                Check(before.SequenceEqual(Hash(overlay)), "VP selection highlight leaked into saved image");
+                var onBits = ImageLoader.Load(overlay).Bitmap;
+                var offBits = ImageLoader.Load(clean).Bitmap;
+                Check(onBits.PixelWidth == offBits.PixelWidth && onBits.PixelHeight == offBits.PixelHeight, "Evidence dimensions differ");
+                var onPx = new FormatConvertedBitmap(onBits, PixelFormats.Bgra32, null, 0);
+                var offPx = new FormatConvertedBitmap(offBits, PixelFormats.Bgra32, null, 0);
+                int green = 0, total = 0;
+                var row = new byte[onPx.PixelWidth * 4];
+                var offRow = new byte[onPx.PixelWidth * 4];
+                for (int y = 0; y < onPx.PixelHeight; y++)
+                {
+                    onPx.CopyPixels(new Int32Rect(0, y, onPx.PixelWidth, 1), row, row.Length, 0);
+                    offPx.CopyPixels(new Int32Rect(0, y, onPx.PixelWidth, 1), offRow, offRow.Length, 0);
+                    for (int x = 0; x < onPx.PixelWidth; x++)
+                    {
+                        int b = row[x * 4] & 255, g = row[x * 4 + 1] & 255, r = row[x * 4 + 2] & 255;
+                        if (g > r + 18 && g > b + 18) green++;
+                        total++;
+                    }
+                }
+                Check(green > total / 200, "Perspective overlay produced no green axis pixels");
+                window.SetPerspective(false); window.ClearImages();
+            });
+            await Case("isometric grid overlay toggles independently and exports with the image", async delegate
+            {
+                window.ClearImages(); window.SetLink(false); window.SetPerspective(false); await window.AddFilesAsync(new[] { wide, portrait }); Pump();
+                string clean = Path.Combine(evidence, "isometric-off.jpg"), grid = Path.Combine(evidence, "isometric-on.jpg");
+                window.SaveComposite(clean); var cleanHash = Hash(clean);
+                window.SetIsometric(true);
+                window.SaveComposite(grid);
+                var isoHash = Hash(grid);
+                Check(!isoHash.SequenceEqual(cleanHash), "Isometric toggle on did not export grid");
+                window.SetIsometric(false); window.SaveComposite(grid);
+                Check(Hash(grid).SequenceEqual(cleanHash), "Isometric toggle off did not restore clean export");
+                window.Tiles[0].AddPerspectivePoint(new Point(0.4, 0.3));
+                window.SetIsometric(true); window.SaveComposite(grid);
+                Check(Hash(grid).SequenceEqual(isoHash), "Isometric export changed from perspective points");
+                window.SetIsometric(false); window.SaveComposite(grid);
+                Check(Hash(grid).SequenceEqual(cleanHash), "Perspective points leaked into isometric-off export");
+                window.SetIsometric(true); window.SaveComposite(grid);
+                var isoBits = ImageLoader.Load(grid).Bitmap;
+                var isoPx = new FormatConvertedBitmap(isoBits, PixelFormats.Bgra32, null, 0);
+                int isoGreen = 0; var isoRow = new byte[isoPx.PixelWidth * 4];
+                for (int y = 0; y < isoPx.PixelHeight; y++)
+                {
+                    isoPx.CopyPixels(new Int32Rect(0, y, isoPx.PixelWidth, 1), isoRow, isoRow.Length, 0);
+                    for (int x = 0; x < isoPx.PixelWidth; x++)
+                    {
+                        int b = isoRow[x * 4] & 255, g = isoRow[x * 4 + 1] & 255, r = isoRow[x * 4 + 2] & 255;
+                        if (g > r + 18 && g > b + 18) isoGreen++;
+                    }
+                }
+                Check(isoGreen > 500, "Isometric grid produced no green pixels (" + isoGreen + ")");
+                Check(Math.Abs(window.IsometricAngleDegrees - 26.565) < 0.001, "Default isometric angle is not 2:1 (26.565)");
+                window.SetIsometric(true); window.SaveComposite(grid); var angleRoot = Hash(grid);
+                window.SetIsometricAngle(30); window.SaveComposite(grid); var angleChanged = Hash(grid);
+                Check(!angleChanged.SequenceEqual(angleRoot), "Angle change did not redraw the grid");
+                window.SetIsometricAngle(26.565); window.SaveComposite(grid);
+                Check(Hash(grid).SequenceEqual(angleRoot), "Angle restore did not reproduce the 2:1 grid");
+                window.SetIsometricAngle(26.565); window.SetIsometric(false);
+                window.CycleIsometric();
+                Check(window.IsometricEnabled && Math.Abs(window.IsometricAngleDegrees - 26.565) < 0.001, "First click should enable at 2:1");
+                window.CycleIsometric();
+                Check(Math.Abs(window.IsometricAngleDegrees - 30) < 0.001, "Second click should advance to 30 degrees");
+                window.CycleIsometric();
+                Check(!window.IsometricEnabled, "Third click should turn the isometric grid off");
+                window.CycleIsometric();
+                Check(window.IsometricEnabled && Math.Abs(window.IsometricAngleDegrees - 26.565) < 0.001, "Fourth click should return to 2:1");
+                window.SetIsometric(false); window.ClearImages();
+            });
             await Case("actual rendered sample canvas", async delegate
             {
                 await window.AddFilesAsync(new[] { wide, Path.Combine(evidence, "fixtures", "study-b.png"), portrait, square });
