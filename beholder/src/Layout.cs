@@ -8,6 +8,8 @@ namespace Beholder
     // proportions; choose the row partition that uses the most uncropped pixels.
     public static class TileLayout
     {
+        public const double CaptionHeight = 24;
+
         public static List<Rect> Arrange(double width, double height, IList<double> aspects, bool equal)
         {
             var output = new List<Rect>();
@@ -24,7 +26,7 @@ namespace Beholder
                     double w = Math.Max(1, (width - gutter * (cols - 1)) / cols);
                     double h = Math.Max(1, (height - gutter * (rows - 1)) / rows);
                     double score = 0;
-                    for (int i = 0; i < n; i++) score += VisibleArea(w, Math.Max(1, h - 32), SafeAspect(aspects[i]));
+                    for (int i = 0; i < n; i++) score += VisibleArea(w, Math.Max(1, h - CaptionHeight), SafeAspect(aspects[i]));
                     if (score > bestScore) { bestScore = score; bestColumns = cols; }
                 }
                 int rowCount = (n + bestColumns - 1) / bestColumns;
@@ -68,7 +70,7 @@ namespace Beholder
                             if (double.IsInfinity(cost[r - 1, start])) continue;
                             double available = width - gutter * (end - start - 1);
                             if (available <= 0) continue;
-                            double idealHeight = available / (prefix[end] - prefix[start]) + 32;
+                            double idealHeight = available / (prefix[end] - prefix[start]) + CaptionHeight;
                             double mismatch = Math.Log(idealHeight / targetHeight);
                             double candidate = cost[r - 1, start] + mismatch * mismatch;
                             if (candidate < cost[r, end]) { cost[r, end] = candidate; previous[r, end] = start; }
@@ -81,7 +83,7 @@ namespace Beholder
                 for (int r = rows; r > 0; r--) { breaks.Insert(0, e); e = previous[r, e]; }
                 var rects = Rows(width, height, aspects, breaks);
                 double area = 0;
-                for (int i = 0; i < n; i++) area += VisibleArea(rects[i].Width, Math.Max(1, rects[i].Height - 32), SafeAspect(aspects[i]));
+                for (int i = 0; i < n; i++) area += VisibleArea(rects[i].Width, Math.Max(1, rects[i].Height - CaptionHeight), SafeAspect(aspects[i]));
                 if (area > bestArea) { bestArea = area; bestBreaks = breaks; }
             }
             return Rows(width, height, aspects, bestBreaks ?? new List<int> { n });
@@ -98,7 +100,7 @@ namespace Beholder
             {
                 double sum = 0;
                 for (int i = start; i < end; i++) sum += SafeAspect(aspects[i]);
-                double h = Math.Max(0.0000001, width - gutter * (end - start - 1)) / sum + 32;
+                double h = Math.Max(0.0000001, width - gutter * (end - start - 1)) / sum + CaptionHeight;
                 ideals.Add(h); total += h; start = end;
             }
             double availableH = Math.Max(0.0000001, height - gutter * (breaks.Count - 1));

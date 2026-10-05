@@ -15,7 +15,7 @@ using Microsoft.Win32;
 
 [assembly: AssemblyTitle("Beholder")]
 [assembly: AssemblyDescription("A private, lightweight image comparison canvas")]
-[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.0.1.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
 
 namespace Beholder
@@ -42,22 +42,21 @@ namespace Beholder
         public string LastMessage { get; private set; }
         public ImageTile FocusedTile { get; private set; }
         private readonly Dictionary<string, int> pending = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        private readonly TextBlock status = new TextBlock();
-        private readonly TextBlock count = new TextBlock();
+        private readonly TextBlock errorText = new TextBlock();
+        private readonly Border errorNotice = new Border();
+        private readonly System.Windows.Threading.DispatcherTimer noticeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
         private readonly Border canvasBorder = new Border();
         private readonly Grid canvasHost = new Grid();
         private readonly StackPanel empty = new StackPanel();
         private readonly Button layoutButton;
         private readonly Button linkButton;
-        private readonly Button backgroundButton;
         private readonly Button monochromeButton;
         private ImageTile selected;
         private int importGeneration;
         private int clipboardNumber;
-        private int backgroundIndex;
         private bool fullscreen;
         private WindowState oldWindowState;
-        private readonly Brush[] backgrounds = { Paint("#14171C"), Paint("#797F86"), Paint("#F3F2EF") };
+        private readonly Brush canvasBackground = Paint("#14171C");
         public static readonly Brush Text = Paint("#E7EBF0");
         public static readonly Brush Muted = Paint("#939EAD");
         public static readonly Brush Accent = Paint("#8FB4EF");
@@ -86,7 +85,6 @@ namespace Beholder
             var root = new Grid();
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(64) });
             root.RowDefinitions.Add(new RowDefinition());
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(30) });
             Content = root;
             var bar = new DockPanel { LastChildFill = false, Margin = new Thickness(18, 10, 14, 10) };
             Grid.SetRow(bar, 0); root.Children.Add(bar);
@@ -104,11 +102,9 @@ namespace Beholder
             actions.Children.Add(linkButton);
             monochromeButton = ActionButton("B/W", "Toggle black and white for every image (Ctrl+B)", async delegate { await SetMonochromeAsync(!Monochrome); });
             actions.Children.Add(monochromeButton);
-            backgroundButton = ActionButton("Dark", "Cycle the canvas: dark, grey, light", delegate { CycleBackground(); });
-            actions.Children.Add(backgroundButton);
             actions.Children.Add(ActionButton("Clear", "Remove all tiles, never delete original files (Ctrl+Shift+X)", delegate { ClearImages(); }));
-            canvasBorder.Margin = new Thickness(12, 0, 12, 0);
-            canvasBorder.Background = backgrounds[0];
+            canvasBorder.Margin = new Thickness(12, 0, 12, 8);
+            canvasBorder.Background = canvasBackground;
             canvasBorder.BorderBrush = Paint("#303740"); canvasBorder.BorderThickness = new Thickness(1); canvasBorder.CornerRadius = new CornerRadius(10);
             Grid.SetRow(canvasBorder, 1); root.Children.Add(canvasBorder);
             canvasBorder.Child = canvasHost;
@@ -125,20 +121,22 @@ namespace Beholder
             empty.Children.Add(choose);
             empty.Children.Add(new TextBlock { Text = "PNG  /  JPEG  /  WEBP  /  GIF  /  BMP  /  TIFF", Foreground = Paint("#667487"), FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center });
             canvasHost.Children.Add(empty);
-            var bottom = new DockPanel { Margin = new Thickness(20, 0, 20, 0), VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetRow(bottom, 2); root.Children.Add(bottom);
-            count.Foreground = Muted; count.FontSize = 11; DockPanel.SetDock(count, Dock.Right); bottom.Children.Add(count);
-            status.Foreground = Muted; status.FontSize = 11; status.TextTrimming = TextTrimming.CharacterEllipsis;
-            status.ToolTip = "Wheel: zoom  |  Drag image: pan  |  Drag filename: reorder  |  Double-click: focus  |  Delete: remove selected  |  F11: fullscreen  |  Ctrl+V: paste";
-            bottom.Children.Add(status);
-            SetStatus("Drop anywhere  /  Wheel to zoom  /  Drag to pan  /  F11 fullscreen");
-            UpdateCount();
+            // Errors float above the canvas only when needed, never reserve image space.
+            errorNotice.Background = Paint("#302725"); errorNotice.BorderBrush = Paint("#725444"); errorNotice.BorderThickness = new Thickness(1);
+            errorNotice.CornerRadius = new CornerRadius(6); errorNotice.Padding = new Thickness(12, 8, 12, 8); errorNotice.Margin = new Thickness(16);
+            errorNotice.HorizontalAlignment = HorizontalAlignment.Right; errorNotice.VerticalAlignment = VerticalAlignment.Top;
+            errorNotice.MaxWidth = 480; errorNotice.MaxHeight = 120; errorNotice.ClipToBounds = true; errorNotice.Visibility = Visibility.Collapsed;
+            errorText.Foreground = Paint("#FFC39E"); errorText.FontSize = 12; errorText.TextWrapping = TextWrapping.Wrap;
+            errorNotice.Child = errorText; canvasHost.Children.Add(errorNotice);
+            errorNotice.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { errorNotice.Visibility = Visibility.Collapsed; noticeTimer.Stop(); e.Handled = true; };
+            noticeTimer.Tick += delegate { errorNotice.Visibility = Visibility.Collapsed; noticeTimer.Stop(); };
+            UpdateEmptyState();
             Workspace.SizeChanged += delegate { Reflow(); };
             PreviewDragOver += OnDragOver;
             PreviewDrop += OnDrop;
             DragLeave += delegate { canvasBorder.BorderBrush = Paint("#303740"); };
             PreviewKeyDown += OnKey;
-            Closed += delegate { importGeneration++; Tiles.Clear(); pending.Clear(); Workspace.Children.Clear(); };
+            Closed += delegate { importGeneration++; noticeTimer.Stop(); Tiles.Clear(); pending.Clear(); Workspace.Children.Clear(); };
         }
 
         public static Brush Paint(string hex)
@@ -232,7 +230,7 @@ namespace Beholder
             if (Tiles.Count >= 64) { SetStatus("Canvas limit: 64 images.", true); return; }
             var tile = new ImageTile(item, this);
             Tiles.Add(tile); Workspace.Children.Add(tile);
-            FocusedTile = null; Select(tile); UpdateCount(); Reflow();
+            FocusedTile = null; Select(tile); UpdateEmptyState(); Reflow();
             ApplyCurrentFilter(tile);
         }
 
@@ -247,13 +245,13 @@ namespace Beholder
             if (FocusedTile == tile) FocusedTile = null;
             Tiles.Remove(tile); Workspace.Children.Remove(tile);
             if (selected == tile) Select(Tiles.LastOrDefault());
-            UpdateCount(); Reflow();
+            UpdateEmptyState(); Reflow();
         }
 
         public void ClearImages()
         {
             importGeneration++; Tiles.Clear(); Workspace.Children.Clear(); pending.Clear(); selected = null; FocusedTile = null;
-            UpdateCount(); Reflow(); SetStatus("Canvas cleared. Original files were not changed.");
+            UpdateEmptyState(); Reflow(); SetStatus("Canvas cleared. Original files were not changed.");
         }
 
         public void SetEqual(bool equal)
@@ -312,22 +310,12 @@ namespace Beholder
             foreach (var t in Tiles) if (t != source) t.SetNormalizedView(source.Zoom, normalized);
         }
 
-        private void UpdateCount()
+        private void UpdateEmptyState()
         {
             empty.Visibility = Tiles.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            count.Text = Tiles.Count == 0 ? "Local only. No uploads." : Tiles.Count + " image" + (Tiles.Count == 1 ? "" : "s") + "  /  local only";
         }
 
-        private void CycleBackground()
-        {
-            backgroundIndex = (backgroundIndex + 1) % backgrounds.Length;
-            canvasBorder.Background = backgrounds[backgroundIndex];
-            backgroundButton.Content = new[] { "Dark", "Grey", "Light" }[backgroundIndex];
-            foreach (var t in Tiles) t.SetBackground(backgrounds[backgroundIndex]);
-            foreach (var label in empty.Children.OfType<TextBlock>()) label.Foreground = backgroundIndex == 0 ? (label.FontSize >= 20 ? Text : Muted) : Paint("#233144");
-        }
-
-        public Brush CanvasBackground { get { return backgrounds[backgroundIndex]; } }
+        public Brush CanvasBackground { get { return canvasBackground; } }
 
         public void Reflow()
         {
@@ -345,7 +333,9 @@ namespace Beholder
 
         private void SetStatus(string text, bool error = false)
         {
-            LastMessage = text; status.Text = text; status.ToolTip = text; status.Foreground = error ? Paint("#FFC39E") : Muted;
+            LastMessage = text; noticeTimer.Stop();
+            errorNotice.Visibility = error ? Visibility.Visible : Visibility.Collapsed;
+            if (error) { errorText.Text = text; errorNotice.ToolTip = text + "\nClick to dismiss"; noticeTimer.Start(); }
         }
 
         private void OnDragOver(object sender, DragEventArgs e)
@@ -437,7 +427,7 @@ namespace Beholder
             Item = item; owner = window; Zoom = 1;
             BorderBrush = BeholderWindow.Paint("#35404E"); BorderThickness = new Thickness(1); CornerRadius = new CornerRadius(7);
             Background = window.CanvasBackground; ClipToBounds = true;
-            var grid = new Grid(); grid.RowDefinitions.Add(new RowDefinition()); grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(32) }); Child = grid;
+            var grid = new Grid(); grid.RowDefinitions.Add(new RowDefinition()); grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TileLayout.CaptionHeight) }); Child = grid;
             Viewport.Background = Checker(); Viewport.ClipToBounds = true; Viewport.Cursor = Cursors.Hand;
             grid.Children.Add(Viewport);
             image.Source = item.Bitmap; image.Stretch = Stretch.Uniform; image.Margin = new Thickness(6);
@@ -448,12 +438,12 @@ namespace Beholder
             var header = new DockPanel { Background = BeholderWindow.Paint("#242A33"), LastChildFill = true, Cursor = Cursors.SizeAll };
             Grid.SetRow(header, 1); grid.Children.Add(header);
             var remove = BeholderWindow.ActionButton("x", "Remove this image (original is untouched)", delegate { owner.Remove(this); });
-            remove.Width = 30; remove.MinWidth = 30; remove.Height = 28; remove.Padding = new Thickness(0); remove.Margin = new Thickness(0, 0, 2, 0); remove.Background = Brushes.Transparent; remove.BorderBrush = Brushes.Transparent;
+            remove.Width = 24; remove.MinWidth = 24; remove.Height = TileLayout.CaptionHeight; remove.Padding = new Thickness(0); remove.Margin = new Thickness(0, 0, 2, 0); remove.Background = Brushes.Transparent; remove.BorderBrush = Brushes.Transparent;
             System.Windows.Automation.AutomationProperties.SetName(remove, "Remove " + item.Name);
             DockPanel.SetDock(remove, Dock.Right); header.Children.Add(remove);
-            zoomText.Foreground = BeholderWindow.Muted; zoomText.FontSize = 10; zoomText.VerticalAlignment = VerticalAlignment.Center; zoomText.Margin = new Thickness(6, 0, 8, 0); zoomText.Text = "Fit";
+            zoomText.Foreground = BeholderWindow.Muted; zoomText.FontSize = 10; zoomText.VerticalAlignment = VerticalAlignment.Center; zoomText.Margin = new Thickness(4, 0, 5, 0); zoomText.Text = "Fit";
             DockPanel.SetDock(zoomText, Dock.Right); header.Children.Add(zoomText);
-            var name = new TextBlock { Text = item.Name, Foreground = BeholderWindow.Text, FontSize = 11, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = item.Name + "\n" + item.Width + " x " + item.Height + " px\nDrag this label to reorder" };
+            var name = new TextBlock { Text = item.Name, Foreground = BeholderWindow.Text, FontSize = 11, Margin = new Thickness(7, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = item.Name + "\n" + item.Width + " x " + item.Height + " px\nDrag this label to reorder" };
             header.Children.Add(name);
             Viewport.MouseWheel += delegate(object sender, MouseWheelEventArgs e)
             {
@@ -504,7 +494,6 @@ namespace Beholder
             if (owner.Monochrome && owner.Tiles.Contains(this)) image.Source = grey;
         }
 
-        public void SetBackground(Brush brush) { Background = brush; }
         public void SetSelected(bool value) { BorderBrush = value ? BeholderWindow.Accent : BeholderWindow.Paint("#35404E"); }
 
         private Size FitSize

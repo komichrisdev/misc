@@ -69,6 +69,16 @@ namespace Beholder
         private static async Task Run()
         {
             await Case("empty canvas has no tiles and accepts drops", () => Sync(delegate { Check(window.Tiles.Count == 0 && window.Workspace.Children.Count == 0, "Canvas is not empty"); Check(window.AllowDrop, "File drops disabled"); }));
+            await Case("dark-only canvas reclaims the global footer space", () => Sync(delegate
+            {
+                Pump(); var shell = (System.Windows.Controls.Grid)window.Content;
+                Check(shell.RowDefinitions.Count == 2, "Extra status-bar row still reserves image space");
+                Check(window.Workspace.ActualHeight > shell.ActualHeight - shell.RowDefinitions[0].ActualHeight - 36, "Canvas did not reclaim the bottom space");
+                var color = ((SolidColorBrush)window.CanvasBackground).Color;
+                Check(color.R < 50 && color.G < 50 && color.B < 50, "Canvas is not dark by default");
+                var buttons = Visuals<System.Windows.Controls.Button>(window).Select(b => Convert.ToString(b.Content));
+                Check(!buttons.Any(s => s == "Dark" || s == "Grey" || s == "Light"), "Theme selector is still exposed");
+            }));
             await Case("layout zero and invalid viewport", () => Sync(delegate { Check(TileLayout.Arrange(0, 100, new[] { 1.0 }, false).Count == 0, "Zero viewport produced cells"); Check(TileLayout.Arrange(100, 100, new double[0], false).Count == 0, "Empty input produced cells"); }));
             await Case("two comparisons are side by side and proportionate", () => Sync(delegate { var a = TileLayout.Arrange(1000, 600, new[] { 2.0, 0.5 }, false); Check(a.Count == 2 && a[0].Y == a[1].Y, "Not side by side"); Check(a[0].Width > a[1].Width && Math.Abs(a[0].Width / a[1].Width - 4) < 0.001, "Aspect-aware widths wrong"); }));
             await Case("random auto and equal layouts stay bounded and nonoverlapping", () => Sync(delegate
@@ -100,8 +110,22 @@ namespace Beholder
                 Pump(); Check(window.Tiles.Count == 3 && drop.Handled, "Actual routed drop did not import files");
                 ValidateLive();
             });
+            await Case("compact image captions preserve readable labels and removal controls", () => Sync(delegate
+            {
+                Pump();
+                foreach (var tile in window.Tiles)
+                {
+                    var grid = (System.Windows.Controls.Grid)tile.Child;
+                    double caption = grid.RowDefinitions[1].ActualHeight;
+                    Check(caption <= 24 && caption == TileLayout.CaptionHeight, "Filename strip is not compact or differs from layout geometry");
+                    Check(tile.Viewport.ActualHeight >= tile.Height - caption - 2.01, "Image viewport has unnecessary caption padding");
+                    Check(Visuals<System.Windows.Controls.TextBlock>(tile).Any(t => t.Text == tile.Item.Name && t.IsVisible && t.FontSize >= 11), "Filename became unreadable or hidden");
+                    var remove = Visuals<System.Windows.Controls.Button>(tile).Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == "Remove " + tile.Item.Name);
+                    Check(remove.IsEnabled && remove.ActualHeight <= caption && remove.ActualHeight > 0, "Remove control is clipped");
+                }
+            }));
             await Case("duplicate file drop does not duplicate tiles", async delegate { int count = window.Tiles.Count; await window.AddFilesAsync(new[] { wide, wide }); Check(window.Tiles.Count == count, "Duplicate tile admitted"); });
-            await Case("corrupt and missing files are skipped with visible errors", async delegate { string corrupt = Path.Combine(evidence, "fixtures", "corrupt.png"); File.WriteAllText(corrupt, "not an image"); int count = window.Tiles.Count; await window.AddFilesAsync(new[] { corrupt, corrupt + ".missing" }); Check(window.Tiles.Count == count && window.LastMessage.Contains("skipped 2"), "Error not surfaced or corrupt tile added"); });
+            await Case("corrupt and missing files are skipped with visible errors", async delegate { string corrupt = Path.Combine(evidence, "fixtures", "corrupt.png"); File.WriteAllText(corrupt, "not an image"); int count = window.Tiles.Count; await window.AddFilesAsync(new[] { corrupt, corrupt + ".missing" }); Check(window.Tiles.Count == count && window.LastMessage.Contains("skipped 2"), "Error not surfaced or corrupt tile added"); Pump(); Check(Visuals<System.Windows.Controls.TextBlock>(window).Any(t => t.Text == window.LastMessage && t.IsVisible), "Import error not visible after removing status bar"); });
             await Case("wheel routed event zooms without clipping outside tile", () => Sync(delegate { var t = window.Tiles[0]; var args = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, 120); args.RoutedEvent = UIElement.MouseWheelEvent; t.Viewport.RaiseEvent(args); Check(t.Zoom > 1 && args.Handled && t.Viewport.ClipToBounds, "Wheel route failed"); }));
             await Case("zoom clamp pan clamp and fit reset", () => Sync(delegate { var t = window.Tiles[0]; t.SetView(100, 100000, -100000, false); Check(t.Zoom == 32 && Math.Abs(t.PanX) < 100000 && Math.Abs(t.PanY) < 100000, "Unbounded pan/zoom"); window.ResetAll(); Check(window.Tiles.All(x => x.Zoom == 1 && x.PanX == 0 && x.PanY == 0), "Fit reset failed"); }));
             await Case("linked views synchronize zoom and disable independently", () => Sync(delegate { var t = window.Tiles[0]; window.SetLink(true); t.SetView(3, 0, 0, true); Check(window.Tiles.All(x => x.Zoom == 3), "Linked zoom not propagated"); window.SetLink(false); t.SetView(4, 0, 0, true); Check(window.Tiles[1].Zoom == 3, "Unlinked zoom leaked"); window.ResetAll(); }));
@@ -134,6 +158,13 @@ namespace Beholder
                 using (var stream = File.Create(Path.Combine(evidence, "sample-canvas.png"))) encoder.Save(stream);
                 Check(new FileInfo(Path.Combine(evidence, "sample-canvas.png")).Length > 2000, "No rendered screenshot");
             });
+        }
+
+        private static IEnumerable<T> Visuals<T>(DependencyObject root) where T : DependencyObject
+        {
+            if (root is T) yield return (T)root;
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+                foreach (var node in Visuals<T>(VisualTreeHelper.GetChild(root, i))) yield return node;
         }
 
         private static string WebPFixture(string name)

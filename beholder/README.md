@@ -22,7 +22,8 @@ The executable is unsigned. Windows may display a SmartScreen warning for a newl
 - Double-click an image to focus it; double-click again or **Esc** to restore the grid.
 - **F11** toggles fullscreen. **Esc** exits fullscreen.
 - The tile's **x** or **Delete** removes the selected image. **Clear** / **Ctrl+Shift+X** empties the canvas. Original files are never deleted or written to.
-- **Dark / Grey / Light** cycles the canvas background. A subtle checkerboard makes transparency visible.
+- Dark-only canvas with a subtle checkerboard for transparency. No theme selector or bottom status bar; compact filename strips leave more room for the images.
+- Import errors appear briefly over the canvas without reserving layout space. Click an error to dismiss it.
 - Hover over a filename for its original pixel dimensions and full filename.
 
 ## Supported inputs and boundaries
