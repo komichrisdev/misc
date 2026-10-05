@@ -8,6 +8,8 @@ A small, standalone Windows image-comparison app for artists and reviewers: comp
 
 Download the portable Windows ZIP from this repository's **Beholder release**, extract it, and double-click **Beholder.exe**. No installer or administrator privileges are needed. Requires Windows 10/11 x64 with .NET Framework 4.8; there are no additional runtime packages.
 
+The latest checked-in build is also available at `dist/Beholder.exe`, with its SHA-256 in `dist/Beholder.exe.sha256`. Tagged release ZIPs are separate and may contain an older build.
+
 The executable is unsigned. Windows may display a SmartScreen warning for a newly downloaded build; only run a copy obtained from this repository or built from this source.
 
 ## Everyday controls

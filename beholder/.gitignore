@@ -1,3 +1,5 @@
-dist/
+dist/*
+!dist/Beholder.exe
+!dist/Beholder.exe.sha256
 evidence/
 *.user
