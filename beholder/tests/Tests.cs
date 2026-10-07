@@ -68,11 +68,18 @@ namespace Beholder
 
         private static async Task Run()
         {
+            await Case("Beholder v3 release identity is visible and versioned", () => Sync(delegate
+            {
+                Check(window.Title == "Beholder v3", "Window title is not Beholder v3");
+                Check(Visuals<System.Windows.Controls.TextBlock>(window).Any(t => t.Text == "Beholder v3"), "In-app brand is not Beholder v3");
+                Check(typeof(BeholderWindow).Assembly.GetName().Version.Major == 3, "Executable assembly major version is not 3");
+            }));
             await Case("empty canvas has no tiles and accepts drops", () => Sync(delegate { Check(window.Tiles.Count == 0 && window.Workspace.Children.Count == 0, "Canvas is not empty"); Check(window.AllowDrop, "File drops disabled"); }));
             await Case("dark-only canvas reclaims the global footer space", () => Sync(delegate
             {
                 Pump(); var shell = (System.Windows.Controls.Grid)window.Content;
-                Check(shell.RowDefinitions.Count == 2, "Extra status-bar row still reserves image space");
+                Check(shell.RowDefinitions.Count == 3 && shell.RowDefinitions[1].ActualHeight == 0,
+                    "Perspective or status row reserves image space while closed");
                 Check(window.Workspace.ActualHeight > shell.ActualHeight - shell.RowDefinitions[0].ActualHeight - 36, "Canvas did not reclaim the bottom space");
                 var color = ((SolidColorBrush)window.CanvasBackground).Color;
                 Check(color.R < 50 && color.G < 50 && color.B < 50, "Canvas is not dark by default");
@@ -97,6 +104,23 @@ namespace Beholder
             await Case("JPEG EXIF orientation applied before tiling", () => Sync(delegate { var a = ImageLoader.Load(rotated); Check(a.Width == 300 && a.Height == 500 && a.Bitmap.PixelWidth == 300 && a.Bitmap.PixelHeight == 500, "Orientation 6 not applied"); }));
             await Case("large image preview bounded but original dimensions retained", () => Sync(delegate { var a = ImageLoader.Load(Path.Combine(evidence, "fixtures", "large.png")); Check(a.Width == 8192 && a.Height == 256, "Original dimensions lost"); Check(a.Bitmap.PixelWidth == 4096 && a.Bitmap.PixelHeight == 128, "Preview not bounded"); }));
             await Case("BMP GIF and TIFF native decoders", () => Sync(delegate { foreach (string ext in new[] { "bmp", "gif", "tiff" }) { var a = ImageLoader.Load(Path.Combine(evidence, "fixtures", "format." + ext)); Check(a.Width == 100 && a.Height == 60 && a.Bitmap.IsFrozen, "Bad " + ext + " decode"); } }));
+            await Case("Flameshot clipboard PNG beats transparent DIB bitmap", () => Sync(delegate
+            {
+                var data = new System.Windows.DataObject();
+                var png = new MemoryStream();
+                var enc = new PngBitmapEncoder(); enc.Frames.Add(BitmapFrame.Create(Pixels(12, 8))); enc.Save(png); png.Position = 0;
+                data.SetData(System.Windows.DataFormats.Bitmap, Pixels(12, 8, true));
+                data.SetData("image/png", png);
+                var method = typeof(ImageLoader).GetMethod("FromClipboardData");
+                Check(method != null, "Flameshot-compatible clipboard format selection is missing");
+                var item = (LoadedImage)method.Invoke(null, new object[] { data, 7 });
+                Check(item != null && item.Bitmap != null && item.Width == 12 && item.Height == 8, "Clipboard PNG did not produce an image");
+                var px = Pixel(item.Bitmap, 6, 4);
+                Check(px[3] == 255 && px[2] > 150 && px[1] > 100, "Flameshot PNG rendered blank despite opaque source pixels");
+                window.ClearImages(); window.AddImage(item); Pump();
+                Check(window.Tiles.Count == 1 && Pixel(window.Tiles[0].DisplayBitmap, 6, 4)[3] == 255, "Pasted tile became transparent");
+                window.ClearImages();
+            }));
             await Case("transparent PNG retains alpha", () => Sync(delegate { var a = ImageLoader.Load(Path.Combine(evidence, "fixtures", "alpha.png")); var b = new FormatConvertedBitmap(a.Bitmap, PixelFormats.Bgra32, null, 0); var pixels = new byte[4]; b.CopyPixels(new Int32Rect(0, 0, 1, 1), pixels, 4, 0); Check(pixels[3] == 0, "Transparent pixel became opaque"); }));
             await Case("drop routed FileDrop data imports multiple images", async delegate
             {
@@ -156,27 +180,46 @@ namespace Beholder
                 string path = Path.Combine(evidence, "composite-clean.jpg");
                 method.Invoke(window, new object[] { path });
                 var saved = ImageLoader.Load(path);
-                Check(saved.Width == (int)Math.Ceiling(window.Workspace.ActualWidth) && saved.Height == (int)Math.Ceiling(window.Workspace.ActualHeight), "Composite dimensions wrong");
+                Check(saved.Width > 0 && (saved.Width != (int)Math.Ceiling(window.Workspace.ActualWidth) || saved.Height != (int)Math.Ceiling(window.Workspace.ActualHeight)),
+                    "Composite still exports at window size instead of full resolution");
                 var before = Hash(path); window.ToggleFocus(window.Tiles[1]); Pump();
                 method.Invoke(window, new object[] { path });
                 Check(before.SequenceEqual(Hash(path)), "Focus omitted images or changed composite");
                 Check(window.FocusedTile == window.Tiles[1], "Export disturbed focus");
                 window.ToggleFocus(window.Tiles[1]); Pump(); window.ClearImages();
             });
-            await Case("perspective mode toggle preserves placed image-relative vanishing points", async delegate
+            await Case("composite exports at full resolution anchored to the lowest-res image", async delegate
+            {
+                window.ClearImages(); window.SetLink(false);
+                await window.AddFilesAsync(new[] { wide, portrait }); Pump();
+                window.SetEqual(true);
+                window.SaveComposite(Path.Combine(evidence, "full-equal.jpg"));
+                var equal = ImageLoader.Load(Path.Combine(evidence, "full-equal.jpg"));
+                Check(equal.Width == 700 * 2 + 8 && equal.Height == 1100,
+                    "Equal tiles did not size cells to the lowest-res image (got " + equal.Width + "x" + equal.Height + ")");
+                window.SetEqual(false);
+                window.SaveComposite(Path.Combine(evidence, "full-auto.jpg"));
+                var auto = ImageLoader.Load(Path.Combine(evidence, "full-auto.jpg"));
+                double a1 = 1600 / (double)1000, a2 = 700 / (double)1100;
+                double w0 = (100 - 8) * a1 / (a1 + a2), w1 = (100 - 8) * a2 / (a1 + a2);
+                double baseFit = Math.Min(w1 / a2, 100);
+                double k = 700 / baseFit;
+                Check(Math.Abs(auto.Width - Math.Ceiling(100 * k)) <= 3 && Math.Abs(auto.Height - Math.Ceiling(100 * k)) <= 3,
+                    "Auto tiles did not anchor the lowest-res image near native size (got " + auto.Width + "x" + auto.Height + ", expected ~" + Math.Ceiling(100 * k) + ")");
+                Check(auto.Width > window.Workspace.ActualWidth, "Full-resolution auto export is smaller than the window");
+                window.SetEqual(false); window.ClearImages();
+            });
+            await Case("perspective toggle off keeps points and re-enable resets them", async delegate
             {
                 window.ClearImages(); await window.AddFilesAsync(new[] { wide, portrait }); Pump();
-                var mode = typeof(BeholderWindow).GetMethod("SetPerspective");
-                Check(mode != null, "Perspective mode is missing");
-                mode.Invoke(window, new object[] { true });
-                var add = typeof(ImageTile).GetMethod("AddPerspectivePoint");
-                var points = typeof(ImageTile).GetProperty("PerspectivePoints");
-                Check(add != null && points != null, "Vanishing point editing is missing");
-                var tile = window.Tiles[0]; add.Invoke(tile, new object[] { new Point(0.3, 0.4) });
-                mode.Invoke(window, new object[] { false }); mode.Invoke(window, new object[] { true });
-                var saved = (IList<Point>)points.GetValue(tile, null);
-                Check(saved.Count == 1 && saved[0] == new Point(0.3, 0.4), "Toggle erased or moved a vanishing point");
-                mode.Invoke(window, new object[] { false }); window.ClearImages();
+                window.SetPerspective(true);
+                var tile = window.Tiles[0]; tile.AddPerspectivePoint(new Point(0.3, 0.4)); tile.AddPerspectivePoint(new Point(0.7, 0.3));
+                Check(tile.PerspectivePoints.Count == 2, "Placed points missing");
+                window.SetPerspective(false);
+                Check(tile.PerspectivePoints.Count == 2, "Toggle off erased points that must stay until re-enabled");
+                window.SetPerspective(true);
+                Check(window.Tiles.All(t => t.PerspectivePoints.Count == 0), "Re-enabling did not reset placed vanishing points");
+                window.SetPerspective(false); window.ClearImages();
             });
             await Case("perspective editing moves and deletes points without deleting tiles", async delegate
             {
@@ -193,6 +236,24 @@ namespace Beholder
                 window.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Delete) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
                 Check(window.Tiles.Count == 2, "Delete without selected VP removed image in perspective mode");
                 
+            });
+            await Case("delete removes the last-clicked vanishing point even while the perspective row is open", async delegate
+            {
+                window.ClearImages(); await window.AddFilesAsync(new[] { wide, portrait }); Pump();
+                window.SetPerspective(true);
+                var tile = window.Tiles[0];
+                tile.AddPerspectivePoint(new Point(0.3, 0.4)); tile.AddPerspectivePoint(new Point(0.7, 0.6));
+                var opener = Visuals<System.Windows.Controls.Button>(window)
+                    .Single(b => Convert.ToString(b.Content).StartsWith("Perspective"));
+                opener.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); Pump();
+                var key = new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Delete);
+                key.RoutedEvent = Keyboard.PreviewKeyDownEvent; window.RaiseEvent(key);
+                Check(key.Handled && tile.PerspectivePoints.Count == 1 && tile.PerspectivePoints[0] == new Point(0.3, 0.4),
+                    "Delete key was swallowed while the row is open or removed the wrong point");
+                window.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), Environment.TickCount, Key.Delete) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+                Check(tile.PerspectivePoints.Count == 0, "Delete did not fall back to the last point when nothing is selected");
+                opener.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); Pump();
+                window.SetPerspective(false); window.ClearImages();
             });
             await Case("linked perspective copies edits to every image and unlinks independently", async delegate
             {
@@ -224,7 +285,7 @@ namespace Beholder
                 var first = window.Tiles[0]; window.SetPerspective(false);
                 string clean = Path.Combine(evidence, "perspective-off.jpg"), overlay = Path.Combine(evidence, "perspective-on.jpg");
                 window.SaveComposite(clean); var cleanHash = Hash(clean);
-                first.AddPerspectivePoint(new Point(0.2, 0.35)); window.SetPerspective(true); window.SaveComposite(overlay);
+                window.SetPerspective(true); first.AddPerspectivePoint(new Point(0.2, 0.35)); window.SaveComposite(overlay);
                 Check(!Hash(overlay).SequenceEqual(cleanHash), "Perspective toggle on did not draw exported overlays");
                 var imageBounds = first.ImageBounds;
                 Check(imageBounds.Width > 10 && imageBounds.Height > 10, "Tile image bounds collapsed: " + imageBounds);
@@ -259,7 +320,10 @@ namespace Beholder
                 }
                 window.SetPerspective(false); window.SaveComposite(clean);
                 Check(Hash(clean).SequenceEqual(cleanHash) && first.PerspectivePoints.Count == 4, "Toggle off altered clean export or erased points");
-                window.SetPerspective(true); window.SaveComposite(overlay); var before = Hash(overlay);
+                window.SetPerspective(true);
+                Check(first.PerspectivePoints.Count == 0, "Re-enabling did not reset points before overlay checks");
+                first.AddPerspectivePoint(new Point(0.2, 0.35)); first.AddPerspectivePoint(new Point(0.85, 0.5)); first.AddPerspectivePoint(new Point(0.5, 0.05)); first.AddPerspectivePoint(new Point(0.6, 0.7));
+                window.SaveComposite(overlay); var before = Hash(overlay);
                 window.Select(window.Tiles[1]); window.SaveComposite(overlay);
                 Check(before.SequenceEqual(Hash(overlay)), "VP selection highlight leaked into saved image");
                 var onBits = ImageLoader.Load(overlay).Bitmap;
@@ -267,7 +331,7 @@ namespace Beholder
                 Check(onBits.PixelWidth == offBits.PixelWidth && onBits.PixelHeight == offBits.PixelHeight, "Evidence dimensions differ");
                 var onPx = new FormatConvertedBitmap(onBits, PixelFormats.Bgra32, null, 0);
                 var offPx = new FormatConvertedBitmap(offBits, PixelFormats.Bgra32, null, 0);
-                int green = 0, total = 0;
+                int colored = 0, total = 0;
                 var row = new byte[onPx.PixelWidth * 4];
                 var offRow = new byte[onPx.PixelWidth * 4];
                 for (int y = 0; y < onPx.PixelHeight; y++)
@@ -277,13 +341,42 @@ namespace Beholder
                     for (int x = 0; x < onPx.PixelWidth; x++)
                     {
                         int b = row[x * 4] & 255, g = row[x * 4 + 1] & 255, r = row[x * 4 + 2] & 255;
-                        if (g > r + 18 && g > b + 18) green++;
+                        int cb = offRow[x * 4] & 255, cg = offRow[x * 4 + 1] & 255, cr = offRow[x * 4 + 2] & 255;
+                        if (Math.Abs(r - cr) + Math.Abs(g - cg) + Math.Abs(b - cb) > 60) colored++;
                         total++;
                     }
                 }
-                Check(green > total / 200, "Perspective overlay produced no green axis pixels");
+                Check(colored > total / 500, "Perspective overlay produced no colored axis pixels");
+                var axisBrush = Drawing.AxisColor("Y", 1) as SolidColorBrush;
+                Check(axisBrush != null && !(axisBrush.Color.G > axisBrush.Color.R + 20 && axisBrush.Color.G > axisBrush.Color.B + 20),
+                    "Y axis color still matches the green cube");
                 window.SetPerspective(false); window.ClearImages();
             });
+            await Case("isometric grid uses black strokes on a light background", () => Sync(delegate
+            {
+                var visual = new DrawingVisual();
+                using (var dc = visual.RenderOpen())
+                {
+                    dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, 320, 220));
+                    Drawing.Isometric(dc, new Rect(0, 0, 320, 220), 26.565);
+                }
+                var bitmap = new RenderTargetBitmap(320, 220, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(visual);
+                var converted = new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+                var row = new byte[converted.PixelWidth * 4];
+                int dark = 0, green = 0;
+                for (int y = 0; y < converted.PixelHeight; y++)
+                {
+                    converted.CopyPixels(new Int32Rect(0, y, converted.PixelWidth, 1), row, row.Length, 0);
+                    for (int x = 0; x < converted.PixelWidth; x++)
+                    {
+                        int b = row[x * 4], g = row[x * 4 + 1], r = row[x * 4 + 2];
+                        if (r < 180 && g < 180 && b < 180) dark++;
+                        if (g > r + 25 && g > b + 25) green++;
+                    }
+                }
+                Check(dark > 200 && green == 0, "Isometric lines should be black, not green (dark=" + dark + ", green=" + green + ")");
+            }));
             await Case("isometric grid overlay toggles independently and exports with the image", async delegate
             {
                 window.ClearImages(); window.SetLink(false); window.SetPerspective(false); await window.AddFilesAsync(new[] { wide, portrait }); Pump();
@@ -296,24 +389,12 @@ namespace Beholder
                 window.SetIsometric(false); window.SaveComposite(grid);
                 Check(Hash(grid).SequenceEqual(cleanHash), "Isometric toggle off did not restore clean export");
                 window.Tiles[0].AddPerspectivePoint(new Point(0.4, 0.3));
+                window.Select(window.Tiles[1]);
                 window.SetIsometric(true); window.SaveComposite(grid);
                 Check(Hash(grid).SequenceEqual(isoHash), "Isometric export changed from perspective points");
                 window.SetIsometric(false); window.SaveComposite(grid);
                 Check(Hash(grid).SequenceEqual(cleanHash), "Perspective points leaked into isometric-off export");
                 window.SetIsometric(true); window.SaveComposite(grid);
-                var isoBits = ImageLoader.Load(grid).Bitmap;
-                var isoPx = new FormatConvertedBitmap(isoBits, PixelFormats.Bgra32, null, 0);
-                int isoGreen = 0; var isoRow = new byte[isoPx.PixelWidth * 4];
-                for (int y = 0; y < isoPx.PixelHeight; y++)
-                {
-                    isoPx.CopyPixels(new Int32Rect(0, y, isoPx.PixelWidth, 1), isoRow, isoRow.Length, 0);
-                    for (int x = 0; x < isoPx.PixelWidth; x++)
-                    {
-                        int b = isoRow[x * 4] & 255, g = isoRow[x * 4 + 1] & 255, r = isoRow[x * 4 + 2] & 255;
-                        if (g > r + 18 && g > b + 18) isoGreen++;
-                    }
-                }
-                Check(isoGreen > 500, "Isometric grid produced no green pixels (" + isoGreen + ")");
                 Check(Math.Abs(window.IsometricAngleDegrees - 26.565) < 0.001, "Default isometric angle is not 2:1 (26.565)");
                 window.SetIsometric(true); window.SaveComposite(grid); var angleRoot = Hash(grid);
                 window.SetIsometricAngle(30); window.SaveComposite(grid); var angleChanged = Hash(grid);
@@ -331,6 +412,384 @@ namespace Beholder
                 Check(window.IsometricEnabled && Math.Abs(window.IsometricAngleDegrees - 26.565) < 0.001, "Fourth click should return to 2:1");
                 window.SetIsometric(false); window.ClearImages();
             });
+            await Case("pitch grid adjusts angle, draws black, and exports over images", async delegate
+            {
+                var set = typeof(BeholderWindow).GetMethod("SetPitch");
+                var angle = typeof(BeholderWindow).GetMethod("SetPitchAngle");
+                var mode = typeof(BeholderWindow).GetProperty("PitchEnabled");
+                var draw = typeof(Drawing).GetMethod("Pitch");
+                Check(set != null && angle != null && mode != null && draw != null, "Pitch grid API is missing");
+                window.ClearImages(); await window.AddFilesAsync(new[] { wide }); Pump();
+                string file = Path.Combine(evidence, "pitch-on.jpg");
+                try
+                {
+                    window.SaveComposite(file); var clean = Hash(file);
+                    set.Invoke(window, new object[] { true });
+                    Check((bool)mode.GetValue(window, null), "Pitch mode did not enable");
+                    window.SaveComposite(file); var first = Hash(file);
+                    Check(!first.SequenceEqual(clean), "Pitch grid did not export");
+                    angle.Invoke(window, new object[] { 60.0 }); window.SaveComposite(file);
+                    Check(!Hash(file).SequenceEqual(first), "Pitch adjustment did not change the grid");
+                    var visual = new DrawingVisual();
+                    using (var dc = visual.RenderOpen())
+                    {
+                        dc.DrawRectangle(Brushes.White, null, new Rect(0, 0, 320, 220));
+                        draw.Invoke(null, new object[] { dc, new Rect(0, 0, 320, 220), 30.0 });
+                    }
+                    var bitmap = new RenderTargetBitmap(320, 220, 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(visual); var converted = new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+                    var row = new byte[320 * 4]; int dark = 0, green = 0;
+                    for (int y = 0; y < 220; y++)
+                    {
+                        converted.CopyPixels(new Int32Rect(0, y, 320, 1), row, row.Length, 0);
+                        for (int x = 0; x < 320; x++)
+                        {
+                            int b = row[x * 4], g = row[x * 4 + 1], r = row[x * 4 + 2];
+                            if (r < 180 && g < 180 && b < 180) dark++;
+                            if (g > r + 25 && g > b + 25) green++;
+                        }
+                    }
+                    Check(dark > 200 && green == 0, "Pitch grid must be black, not green (dark=" + dark + ", green=" + green + ")");
+                }
+                finally { set.Invoke(window, new object[] { false }); window.ClearImages(); }
+            });
+            await Case("pitch grid rotates a flat plane: parallel columns, foreshortened rows", () => Sync(delegate
+            {
+                var rect = new Rect(0, 0, 800, 500);
+                Func<double, double[]> columnXs = angle => PitchGeometry.Build(rect, angle)
+                    .Where(l => Math.Abs(l.A.X - l.B.X) < 0.001 && Math.Abs(l.A.Y - rect.Top) < 0.01)
+                    .OrderBy(l => l.A.X).Select(l => l.A.X).Distinct().ToArray();
+                Func<double, double[]> rowYs = angle => PitchGeometry.Build(rect, angle)
+                    .Where(l => Math.Abs(l.A.Y - l.B.Y) < 0.001 && Math.Abs(l.A.X - rect.X) < 0.01)
+                    .OrderBy(l => l.A.Y).Select(l => l.A.Y).Distinct().ToArray();
+                var cols20 = columnXs(20); var cols85 = columnXs(85);
+                Check(cols20.Length >= 5 && cols85.Length >= 5, "Pitch grid lost its column family");
+                for (int i = 1; i < cols20.Length && i < cols85.Length; i++)
+                    Check(Math.Abs((cols20[i] - cols20[i - 1]) - (cols85[i] - cols85[i - 1])) < 0.01,
+                        "Column spacing changed with rotation (i=" + i + ")");
+                var rows20 = rowYs(20); var rows85 = rowYs(85);
+                Check(rows20.Length >= 3 && rows85.Length >= 3, "Pitch grid lost its row family");
+                // The lowest/highest bands are cut by the image edge; measure the middle bands.
+                double gap20 = Math.Abs(rows20[rows20.Length / 2 + 1] - rows20[rows20.Length / 2]);
+                double gap85 = Math.Abs(rows85[rows85.Length / 2 + 1] - rows85[rows85.Length / 2]);
+                Check(gap20 < gap85 * 0.45,
+                    "Rows do not foreshorten when the plane rotates edge-on (20° gap=" + gap20.ToString("0.0") + ", 85° gap=" + gap85.ToString("0.0") + ")");
+                Check(rows20.Length > rows85.Length, "Row count did not increase as the plane turns edge-on");
+            }));
+            await Case("pitch grid covers zoomed image bounds without unbounded lines", () => Sync(delegate
+            {
+                var image = new Rect(-8000, -8000, 16000, 16000);
+                var lines = PitchGeometry.Build(image, 35).ToArray();
+                var horizontal = lines.Where(l => Math.Abs(l.A.Y - l.B.Y) < 0.001).ToArray();
+                Check(horizontal.Length > 2 && horizontal.Min(l => l.A.Y) <= image.Top + 100 &&
+                    horizontal.Max(l => l.A.Y) >= image.Bottom - 100,
+                    "Pitch grid vanished near zoomed image edges");
+                Check(lines.Length < 1500, "Pitch grid created too many lines on a zoomed image");
+            }));
+            await Case("pitch grid is a top-down chessboard at 90 degrees", () => Sync(delegate
+            {
+                var rect = new Rect(0, 0, 800, 500);
+                var lines = PitchGeometry.Build(rect, 90).ToArray();
+                var verticals = lines.Where(l => Math.Abs(l.A.X - l.B.X) < 0.001).OrderBy(l => l.A.X).ToArray();
+                var horizontals = lines.Where(l => Math.Abs(l.A.Y - l.B.Y) < 0.001).OrderBy(l => l.A.Y).ToArray();
+                Check(verticals.Length >= 5 && horizontals.Length >= 5, "90 degree grid lacks both line families");
+                double vGap = Math.Abs(verticals[1].A.X - verticals[0].A.X), hGap = Math.Abs(horizontals[1].A.Y - horizontals[0].A.Y);
+                for (int i = 1; i < verticals.Length; i++)
+                    Check(Math.Abs(Math.Abs(verticals[i].A.X - verticals[i - 1].A.X) - vGap) < 0.01, "Vertical spacing varies at 90 degrees");
+                for (int i = 1; i < horizontals.Length; i++)
+                    Check(Math.Abs(Math.Abs(horizontals[i].A.Y - horizontals[i - 1].A.Y) - hGap) < 0.01, "Horizontal spacing varies at 90 degrees");
+                Check(Math.Abs(vGap - hGap) < 0.01, "90 degree cells are not square");
+                Check(verticals.First().A.X < rect.Width / 2 && verticals.Last().A.X > rect.Width / 2 &&
+                    horizontals.First().A.Y < rect.Bottom && horizontals.Last().A.Y >= rect.Top, "90 degree grid missed the image");
+                var cube = CubeGeometry.Build(rect, "Pitch", 90, new[] { new Point(0.5, 0.5) }).ToArray();
+                Check(cube.Length == 4 && cube.All(e => rect.Contains(e.A) && rect.Contains(e.B)), "90 degree cube is not a contained green square");
+                var pts = cube.SelectMany(e => new[] { e.A, e.B }).Distinct().ToArray();
+                Check(pts.Length == 4, "90 degree square has degenerate corners");
+                double side = (pts[0] - pts[1]).Length;
+                Check(side > 1 && Math.Abs((pts[1] - pts[2]).Length - side) < 0.01 && Math.Abs((pts[2] - pts[3]).Length - side) < 0.01 && Math.Abs((pts[3] - pts[0]).Length - side) < 0.01,
+                    "90 degree square has unequal sides");
+                Check(Math.Abs(pts.Min(p => p.X) + pts.Max(p => p.X) - rect.Width) < 0.01, "90 degree square is not centered");
+            }));
+            await Case("transparent cube follows pitch, isometric, and one-to-three point projection", async delegate
+            {
+                var cubeToggle = typeof(BeholderWindow).GetMethod("SetCube");
+                var cubeFlag = typeof(BeholderWindow).GetProperty("CubeEnabled");
+                var geometryType = typeof(BeholderWindow).Assembly.GetType("Beholder.CubeGeometry");
+                var build = geometryType == null ? null : geometryType.GetMethods().FirstOrDefault(m => m.Name == "Build" && m.GetParameters().Length == 4);
+                Check(cubeToggle != null && cubeFlag != null && build != null, "Wireframe cube API is missing");
+                var bounds = new Rect(0, 0, 800, 500);
+                var points = new[] { new Point(0.2, 0.36), new Point(0.8, 0.36), new Point(0.5, 0.08), new Point(0.35, 0.8) };
+                var iso = ((System.Collections.IEnumerable)build.Invoke(null, new object[] { bounds, "Isometric", 26.565, points })).Cast<PerspectiveLine>().ToArray();
+                var pitch = ((System.Collections.IEnumerable)build.Invoke(null, new object[] { bounds, "Pitch", 35.0, points })).Cast<PerspectiveLine>().ToArray();
+                Check(iso.Length == 12 && pitch.Length == 12 && !iso[0].A.Equals(pitch[0].A), "Cube lacks 12 mode-dependent edges");
+                Check(iso.All(edge => Math.Abs(edge.Width - 3.0) < 0.001) && pitch.All(edge => Math.Abs(edge.Width - 3.0) < 0.001),
+                    "Wireframe cube strokes are not 3x the grid width");
+                for (int count = 1; count <= 3; count++)
+                {
+                    var cube = ((System.Collections.IEnumerable)build.Invoke(null, new object[] { bounds, "Vanishing", 35.0, points.Take(count).ToArray() })).Cast<PerspectiveLine>().ToArray();
+                    Check(cube.Length == 12, "Vanishing cube should have 12 edges with " + count + " points, got " + cube.Length);
+                    foreach (var line in cube)
+                    {
+                        Check(bounds.Contains(line.A) && bounds.Contains(line.B), "Cube edge escaped its image");
+                        int index = line.Axis == "Z" ? 0 : line.Axis == "X" ? 1 : line.Axis == "Y" ? 2 : -1;
+                        if (index < 0 || index >= count) continue;
+                        Point vanishing = new Point(points[index].X * bounds.Width, points[index].Y * bounds.Height);
+                        Vector v = line.B - line.A, to = vanishing - line.A;
+                        double distance = Math.Abs(v.X * to.Y - v.Y * to.X) / Math.Max(0.01, v.Length);
+                        Check(distance < 0.001, "Cube " + line.Axis + " edge does not converge to its vanishing point");
+                    }
+                }
+                var firstThree = ((System.Collections.IEnumerable)build.Invoke(null, new object[] { bounds, "Vanishing", 35.0, points.Take(3).ToArray() })).Cast<PerspectiveLine>().ToArray();
+                var four = ((System.Collections.IEnumerable)build.Invoke(null, new object[] { bounds, "Vanishing", 35.0, points })).Cast<PerspectiveLine>().ToArray();
+                Check(firstThree.Zip(four, (a, b) => a.A == b.A && a.B == b.B).All(same => same), "Fourth vanishing point changed the cube");
+                window.ClearImages(); window.SetPerspective(false); window.SetPitch(false); window.SetIsometric(false);
+                await window.AddFilesAsync(new[] { wide }); Pump();
+                string file = Path.Combine(evidence, "cube-on.jpg");
+                try
+                {
+                    window.SetIsometric(true); window.SaveComposite(file); var noCube = Hash(file);
+                    cubeToggle.Invoke(window, new object[] { true });
+                    Check((bool)cubeFlag.GetValue(window, null), "Cube toggle did not enable");
+                    window.SaveComposite(file); Check(!Hash(file).SequenceEqual(noCube), "Cube did not export over isometric grid");
+                    window.SetIsometric(false); window.SetPitchAngle(35); window.SetPitch(true); window.SaveComposite(file); var pitched = Hash(file);
+                    window.SetPitchAngle(60); window.SaveComposite(file);
+                    Check(!Hash(file).SequenceEqual(pitched), "Cube did not follow pitch change");
+                    window.SetPitch(false); window.SetPerspective(true);
+                    window.Tiles[0].AddPerspectivePoint(points[0]); window.SaveComposite(file); var onePoint = Hash(file);
+                    window.Tiles[0].AddPerspectivePoint(points[1]); window.SaveComposite(file);
+                    Check(!Hash(file).SequenceEqual(onePoint), "Cube did not follow vanishing point mode");
+                }
+                finally { cubeToggle.Invoke(window, new object[] { false }); window.SetPerspective(false); window.SetPitch(false); window.SetIsometric(false); window.ClearImages(); }
+            });
+            await Case("cube instances scale, offset, and expose xyz grab handles", () => Sync(delegate
+            {
+                var bounds = new Rect(0, 0, 800, 500);
+                var points = new Point[0];
+                var dflt = CubeGeometry.Build(bounds, "Pitch", 35, points).ToArray();
+                var off = CubeGeometry.Build(bounds, "Pitch", 35, points, new CubeInstance(4, 0, 0, 1)).ToArray();
+                Check(dflt.Length == 12 && off.Length == 12, "Instance build lost the 12 edges");
+                double spacing = 800.0 / 18.0;
+                Check(Math.Abs(off[0].A.X - dflt[0].A.X - 4 * spacing) < 0.01, "X offset did not shift the cube by 4 grid cells");
+                var big = CubeGeometry.Build(bounds, "Pitch", 35, points, new CubeInstance(0, 0, 0, 2)).ToArray();
+                double spanDefault = dflt.Max(e => Math.Max(e.A.X, e.B.X)) - dflt.Min(e => Math.Min(e.A.X, e.B.X));
+                double spanBig = big.Max(e => Math.Max(e.A.X, e.B.X)) - big.Min(e => Math.Min(e.A.X, e.B.X));
+                Check(Math.Abs(spanBig - 2 * spanDefault) < 0.01, "Size did not double the cube span");
+                double rad = 35 * Math.PI / 180.0;
+                Point xHandle = new Point(400 + 2 * spacing, 500 - 3 * spacing * Math.Sin(rad));
+                Check(CubeInteraction.HandleAt(bounds, "Pitch", 35, points, new CubeInstance(), xHandle, 8) == "X", "X grab handle not hit");
+                Check(CubeInteraction.HandleAt(bounds, "Pitch", 35, points, new CubeInstance(), new Point(400, 300), 8) == null, "Handle hit outside the cube");
+                Check(CubeInteraction.GridDelta(bounds, "Pitch", 35, new Vector(spacing, 0), "X") - 1.0 < 0.02, "X drag did not map one grid cell");
+                Check(CubeInteraction.GridDelta(bounds, "Pitch", 90, new Vector(0, -spacing), "Y") - 1.0 < 0.02, "90 degree Y drag did not map one grid cell");
+                Check(CubeInteraction.GridDelta(bounds, "Pitch", 90, new Vector(0, -spacing), "Z") == 0, "Z drag at 90 degrees should be inert");
+                var cs = CubeGeometry.Corners(bounds, "Pitch", 35, points, new CubeInstance());
+                Point center = new Point(cs.Average(c => c.X), cs.Average(c => c.Y));
+                Check(CubeInteraction.SelectAt(bounds, "Pitch", 35, points, new[] { new CubeInstance() }, center, 3) == 0, "Body select missed the cube center");
+            }));
+            await Case("cube X handle tracks each pointer position without cumulative overshoot", async delegate
+            {
+                window.ClearImages(); window.SetPerspective(false); window.SetIsometric(false); window.SetPitch(false); window.SetCube(false);
+                await window.AddFilesAsync(new[] { wide }); Pump();
+                window.SetPitch(true); window.SetCube(true);
+                try
+                {
+                    var tile = window.Tiles[0];
+                    Rect image = tile.ImageBounds;
+                    Point start = CubeGeometry.Corners(image, "Pitch", window.PitchAngleDegrees, tile.PerspectivePoints, window.Cubes[0])[1];
+                    Check(tile.BeginCubeGesture(start), "Cube X handle could not start a drag");
+                    double x0 = window.Cubes[0].X;
+                    Point at = start + new Vector(20, 0);
+                    tile.UpdateCubeGesture(at);
+                    double first = window.Cubes[0].X;
+                    tile.UpdateCubeGesture(at);
+                    double samePointer = window.Cubes[0].X;
+                    Check(Math.Abs(samePointer - first) < 0.0001, "Repeated mouse-move at the same pixel moved the cube again");
+                    tile.UpdateCubeGesture(start + new Vector(30, 0));
+                    double x1 = window.Cubes[0].X;
+                    double spacing = PitchGeometry.Spacing(image);
+                    Check(Math.Abs((x1 - x0) * spacing - 30) < 0.01, "Cube handle did not follow the mouse by 30 pixels");
+                }
+                finally { window.Tiles[0].EndCubeGesture(); window.SetCube(false); window.SetPitch(false); window.ClearImages(); }
+            });
+            await Case("vanishing cube exposes grab handles and follows pointer", async delegate
+            {
+                window.ClearImages(); window.SetPitch(false); window.SetIsometric(false); window.SetPerspective(false); window.SetCube(false);
+                await window.AddFilesAsync(new[] { wide }); Pump();
+                window.SetPerspective(true); window.Tiles[0].AddPerspectivePoint(new Point(0.5, 0.35)); window.SetCube(true);
+                try
+                {
+                    var tile = window.Tiles[0]; Rect image = tile.ImageBounds;
+                    Point[] corners = CubeGeometry.Corners(image, "Vanishing", 35, tile.PerspectivePoints, window.Cubes[0]);
+                    Point start = corners[1];
+                    Check(CubeInteraction.HandleAt(image, "Vanishing", 35, tile.PerspectivePoints, window.Cubes[0], start, 10) == "X", "VP cube X handle is missing");
+                    Check(tile.BeginCubeGesture(start), "VP cube handle did not capture pointer");
+                    double initial = window.Cubes[0].X;
+                    Point moved = start + new Vector(20, 0);
+                    tile.UpdateCubeGesture(moved); tile.UpdateCubeGesture(moved);
+                    Point end = CubeGeometry.Corners(image, "Vanishing", 35, tile.PerspectivePoints, window.Cubes[0])[1];
+                    Check(Math.Abs(end.X - start.X - 20) < 0.1 && Math.Abs(window.Cubes[0].X - initial) > 0.01,
+                        "VP cube X handle did not follow pointer by 20 pixels");
+                }
+                finally { window.Tiles[0].EndCubeGesture(); window.SetCube(false); window.SetPerspective(false); window.ClearImages(); }
+            });
+            await Case("isometric Z handle can cross the initial center in both directions", async delegate
+            {
+                window.ClearImages(); window.SetPerspective(false); window.SetPitch(false); window.SetIsometric(false); window.SetCube(false);
+                await window.AddFilesAsync(new[] { wide }); Pump();
+                window.SetIsometric(true); window.SetCube(true);
+                try
+                {
+                    var tile = window.Tiles[0]; Rect image = tile.ImageBounds;
+                    var cube = window.Cubes[0];
+                    Point start = CubeGeometry.Corners(image, "Isometric", window.IsometricAngleDegrees, tile.PerspectivePoints, cube)[4];
+                    Check(CubeInteraction.HandleAt(image, "Isometric", window.IsometricAngleDegrees, tile.PerspectivePoints, cube, start, 10) == "Z", "Isometric left-right Z handle is missing");
+                    Check(tile.BeginCubeGesture(start), "Isometric Z handle could not start drag");
+                    double unit = Math.Min(image.Width, image.Height), slope = Math.Tan(window.IsometricAngleDegrees * Math.PI / 180.0);
+                    Vector backwards = new Vector(unit * 0.19 * 0.45, -unit * 0.19 * slope * 0.45);
+                    Point crossing = start + backwards;
+                    tile.UpdateCubeGesture(crossing);
+                    Check(cube.Z < -0.4, "Isometric Z axis stops at its initial center instead of crossing it");
+                    Point followed = CubeGeometry.Corners(image, "Isometric", window.IsometricAngleDegrees, tile.PerspectivePoints, cube)[4];
+                    Check((followed - crossing).Length < 0.1, "Isometric Z handle did not follow the pointer past center");
+                    tile.UpdateCubeGesture(crossing);
+                    Check(Math.Abs(cube.Z + 0.45) < 0.01, "Repeated isometric Z move drifted after crossing center");
+                }
+                finally { window.Tiles[0].EndCubeGesture(); window.SetCube(false); window.SetIsometric(false); window.ClearImages(); }
+            });
+            await Case("cube list adds, selects, moves, and resizes cubes", () => Sync(delegate
+            {
+                window.ClearImages();
+                window.SetIsometric(false); window.SetPitch(false); window.SetPerspective(false); window.SetCube(false);
+                Check(window.Cubes.Count == 1 && window.SelectedCubeIndex == 0, "Window lacks a default cube");
+                window.AddCube();
+                Check(window.Cubes.Count == 2 && window.SelectedCubeIndex == 1, "AddCube did not append and select a new cube");
+                double bx = window.Cubes[1].X, by = window.Cubes[1].Y, bz = window.Cubes[1].Z;
+                window.MoveCube(1, 3, 2, 1);
+                Check(Math.Abs(window.Cubes[1].X - bx - 3) < 0.001 && Math.Abs(window.Cubes[1].Y - by - 2) < 0.001 && Math.Abs(window.Cubes[1].Z - bz - 1) < 0.001,
+                    "MoveCube did not apply grid-cell deltas");
+                window.ResizeCube(1, 2.0);
+                Check(Math.Abs(window.Cubes[1].Size - 2.0) < 0.001, "ResizeCube did not scale");
+                window.SelectCube(0);
+                Check(window.SelectedCubeIndex == 0, "SelectCube failed");
+                Check(window.PerspectiveBar.Children.OfType<System.Windows.Controls.Button>().Any(b => Convert.ToString(b.Content).Contains("Cube")),
+                    "Perspective row lacks an Add cube button");
+                window.SetCube(false); window.SetIsometric(false);
+            }));
+            await Case("re-enabling any perspective checkbox resets points, angles, and the cube", async delegate
+            {
+                window.ClearImages(); window.SetIsometric(false); window.SetPitch(false); window.SetPerspective(false); window.SetCube(false);
+                await window.AddFilesAsync(new[] { wide }); Pump();
+                window.SetPerspective(true); window.Tiles[0].AddPerspectivePoint(new Point(0.4, 0.4));
+                window.SetPerspective(false); window.SetPerspective(true);
+                Check(window.Tiles[0].PerspectivePoints.Count == 0, "Vanishing points were not reset on re-enable");
+                window.SetIsometricAngle(45); window.SetIsometric(true);
+                Check(Math.Abs(window.IsometricAngleDegrees - 26.565) < 0.001, "Isometric angle was not reset to 2:1 on enable");
+                window.SetIsometricAngle(55); window.SetIsometric(false); window.SetIsometric(true);
+                Check(Math.Abs(window.IsometricAngleDegrees - 26.565) < 0.001, "Isometric angle persisted across the toggle");
+                window.SetPitchAngle(80); window.SetPitch(true);
+                Check(Math.Abs(window.PitchAngleDegrees - 35) < 0.001, "Pitch angle was not reset to default on enable");
+                window.SetPitchAngle(60); window.SetPitch(false); window.SetPitch(true);
+                Check(Math.Abs(window.PitchAngleDegrees - 35) < 0.001, "Pitch angle persisted across the toggle");
+                window.AddCube();
+                Check(window.Cubes.Count == 2, "Setup did not add a second cube");
+                window.SetCube(false); window.SetCube(true);
+                Check(window.Cubes.Count == 1, "Cube list was not reset on re-enable");
+                window.SetCube(false); window.SetPitch(false); window.SetIsometric(false); window.ClearImages();
+            });
+            await Case("re-enabling the wireframe cube resets it to the default position", () => Sync(delegate
+            {
+                window.ClearImages();
+                window.SetIsometric(false); window.SetPitch(false); window.SetPerspective(false); window.SetCube(false);
+                window.SetPitch(true); window.SetCube(true);
+                Check(window.Cubes.Count == 1 && window.SelectedCubeIndex == 0, "Enabling the cube did not start with the default cube");
+                window.AddCube();
+                window.MoveCube(1, 50, 30, 5);
+                Check(window.Cubes.Count == 2 && window.Cubes[1].X > 40, "Setup did not move a cube far away");
+                window.SetCube(false); window.SetCube(true);
+                Check(window.Cubes.Count == 1 && Math.Abs(window.Cubes[0].X) < 0.001 && Math.Abs(window.Cubes[0].Y) < 0.001 &&
+                    Math.Abs(window.Cubes[0].Z) < 0.001 && Math.Abs(window.Cubes[0].Size - 1) < 0.001,
+                    "Toggling the cube off/on did not reset it");
+                window.SetCube(false); window.SetPitch(false);
+            }));
+            await Case("perspective guides draw only on the selected tile unless link views is on", async delegate
+            {
+                window.ClearImages(); window.SetLink(false);
+                await window.AddFilesAsync(new[] { wide, portrait }); Pump();
+                Check(window.Tiles.Count == 2 && window.SelectedTile == window.Tiles[1], "Test setup did not select the newest tile");
+                Check(!window.ShowGuidesOn(window.Tiles[0]) && window.ShowGuidesOn(window.Tiles[1]),
+                    "Unlinked perspective guides are not restricted to the selected tile");
+                window.SetLink(true);
+                Check(window.ShowGuidesOn(window.Tiles[0]) && window.ShowGuidesOn(window.Tiles[1]), "Linked guides do not cover every tile");
+                window.SetLink(false); window.Select(window.Tiles[0]);
+                Check(window.ShowGuidesOn(window.Tiles[0]) && !window.ShowGuidesOn(window.Tiles[1]), "Changing selection did not move the guides");
+                window.SetLink(false); window.ClearImages();
+            });
+            await Case("perspective button opens a horizontal row under the toolbar", () => Sync(delegate
+            {
+                window.SetPerspective(false); window.SetIsometric(false); window.SetPitch(false); window.SetCube(false);
+                Pump();
+                var opener = Visuals<System.Windows.Controls.Button>(window)
+                    .Single(b => Convert.ToString(b.Content).StartsWith("Perspective"));
+                Check(opener.ContextMenu == null, "Perspective still uses a popup menu");
+                Check(!Visuals<System.Windows.Controls.ScrollViewer>(window.PerspectiveBar).Any(), "Perspective row has a scrollbar");
+                Check(!window.PerspectiveBar.IsVisible, "Perspective row is visible before opening");
+                opener.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); Pump();
+                Check(window.PerspectiveBar.IsVisible && !window.PerspectiveEnabled && !window.IsometricEnabled && !window.PitchEnabled && !window.CubeEnabled,
+                    "Opening the perspective row changed a mode");
+                var checks = Visuals<System.Windows.Controls.CheckBox>(window.PerspectiveBar).ToArray();
+                Func<string, System.Windows.Controls.CheckBox> cb = title => checks.Single(x => Convert.ToString(x.Content) == title);
+                var vp = cb("Vanishing points"); var iso = cb("Isometric grid"); var pitch = cb("Pitch grid"); var cube = cb("Wireframe cube");
+                var sliders = Visuals<System.Windows.Controls.Slider>(window.PerspectiveBar).ToArray();
+                Check(sliders.Length >= 2, "Perspective row lacks both angle sliders");
+                var isoSlider = sliders[0]; var pitchSlider = sliders[1];
+                Check(isoSlider.Minimum == 5 && isoSlider.Maximum == 60 && isoSlider.TickFrequency == 1 && !isoSlider.IsSnapToTickEnabled &&
+                    isoSlider.TickPlacement != System.Windows.Controls.Primitives.TickPlacement.None,
+                    "Isometric slider does not follow the mouse (5-60 continuous range with visible notches)");
+                Check(pitchSlider.Minimum == 15 && pitchSlider.Maximum == 90 && !pitchSlider.IsSnapToTickEnabled,
+                    "Pitch slider must reach 90 degrees and follow the mouse");
+                vp.IsChecked = true;
+                Check(window.PerspectiveEnabled && vp.IsChecked == true, "Vanishing checkbox failed");
+                window.SetPerspective(false); Check(vp.IsChecked == false, "Shortcut/model state did not synchronize VP checkbox");
+                iso.IsChecked = true;
+                Check(window.IsometricEnabled && iso.IsChecked == true && Math.Abs(window.IsometricAngleDegrees - 26.565) < 0.001, "Isometric grid checkbox failed");
+                isoSlider.Value = 45;
+                Check(window.IsometricEnabled && Math.Abs(window.IsometricAngleDegrees - 45) < 0.001, "Isometric slider is not continuous");
+                isoSlider.Value = 27;
+                Check(Math.Abs(window.IsometricAngleDegrees - 26.565) < 0.001, "Isometric slider did not grab the 2:1 preset");
+                isoSlider.Value = 30;
+                Check(window.IsometricEnabled && iso.IsChecked == true && Math.Abs(window.IsometricAngleDegrees - 30) < 0.001,
+                    "Isometric slider did not move to the 30° preset");
+                window.CycleIsometric(); Check(!window.IsometricEnabled && iso.IsChecked == false, "Isometric cycle did not leave 30° for Off");
+                isoSlider.Value = 30;
+                Check(window.IsometricEnabled && iso.IsChecked == true && Math.Abs(window.IsometricAngleDegrees - 30) < 0.001,
+                    "Moving the isometric slider while off did not enable the grid at 30°");
+                pitch.IsChecked = true;
+                Check(window.PitchEnabled && pitch.IsChecked == true, "Pitch checkbox failed");
+                pitchSlider.Value = 85;
+                Check(Math.Abs(window.PitchAngleDegrees - 85) < 0.001, "Pitch slider did not adjust angle");
+                pitchSlider.Value = 90;
+                Check(Math.Abs(window.PitchAngleDegrees - 90) < 0.001, "Pitch slider cannot reach top-down 90°");
+                cube.IsChecked = true;
+                Check(window.CubeEnabled && cube.IsChecked == true, "Cube checkbox failed");
+                var hide = Visuals<System.Windows.Controls.Button>(window.PerspectiveBar)
+                    .Single(x => Convert.ToString(x.Content) == "Hide all overlays");
+                hide.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
+                Check(!window.PerspectiveEnabled && !window.IsometricEnabled && !window.PitchEnabled && !window.CubeEnabled &&
+                    vp.IsChecked == false && iso.IsChecked == false && pitch.IsChecked == false && cube.IsChecked == false,
+                    "Hide all overlays did not clear modes and checkboxes");
+                opener.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent)); Pump();
+                Check(!window.PerspectiveBar.IsVisible, "Perspective row did not close");
+            }));
+            await Case("perspective row uses the dark canvas palette", () => Sync(delegate
+            {
+                var opener = Visuals<System.Windows.Controls.Button>(window)
+                    .Single(b => Convert.ToString(b.Content).StartsWith("Perspective"));
+                Check(opener.ContextMenu == null, "Perspective row regressed to a popup");
+                var host = (System.Windows.Controls.Border)window.PerspectiveBar.Parent;
+                var bg = host.Background as SolidColorBrush;
+                Check(bg != null && bg.Color.R < 75 && bg.Color.G < 75 && bg.Color.B < 85,
+                    "Perspective row is not dark (RGB=" + (bg == null ? "null" : bg.Color.ToString()) + ")");
+            }));
+
             await Case("actual rendered sample canvas", async delegate
             {
                 await window.AddFilesAsync(new[] { wide, Path.Combine(evidence, "fixtures", "study-b.png"), portrait, square });

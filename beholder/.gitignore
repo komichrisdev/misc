@@ -1,5 +1,7 @@
 dist/*
-!dist/Beholder.exe
-!dist/Beholder.exe.sha256
+!dist/Beholder v3.exe
+!dist/Beholder v3.exe.sha256
+!dist/Beholder-v3-Windows-x64.zip
+!dist/Beholder-v3-Windows-x64.zip.sha256
 evidence/
 *.user

@@ -1,4 +1,4 @@
-param([switch]$Test)
+﻿param([switch]$Test)
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $framework = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319'
@@ -15,7 +15,7 @@ foreach ($name in @('WindowsBase.dll', 'PresentationCore.dll', 'PresentationFram
 $common = @('/nologo', '/platform:anycpu', '/optimize+', '/warn:4', ('/win32manifest:' + (Join-Path $root 'app.manifest')), ('/resource:' + (Join-Path $root 'beholder.ico') + ',Beholder.Icon.ico')) + $refs
 $common += '/resource:' + (Join-Path $root 'third_party\libwebp\dwebp.exe.gz') + ',Beholder.WebP.gz'
 $sources = @(Get-ChildItem (Join-Path $root 'src') -Filter '*.cs' | Sort-Object Name | ForEach-Object { $_.FullName })
-$app = Join-Path $dist 'Beholder.exe'
+$app = Join-Path $dist 'Beholder v3.exe'
 & $compiler @common '/target:winexe' '/main:Beholder.Program' ('/out:' + $app) ('/win32icon:' + (Join-Path $root 'beholder.ico')) @sources
 if ($LASTEXITCODE -ne 0) { throw "App compilation failed with exit code $LASTEXITCODE" }
 Write-Output "Built $app ($((Get-Item $app).Length) bytes)"

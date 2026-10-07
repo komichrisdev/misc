@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
@@ -94,6 +94,38 @@ namespace Beholder
             }
             var output = BitmapSource.Create(converted.PixelWidth, converted.PixelHeight, 96, 96, PixelFormats.Bgra32, null, pixels, stride);
             output.Freeze(); return output;
+        }
+
+        public static LoadedImage FromClipboardData(IDataObject data, int number)
+        {
+            if (data == null) return null;
+            // Qt/Flameshot puts a valid PNG beside a DeviceIndependentBitmap whose
+            // alpha bytes WPF interprets as all zero. Prefer the encoded pixels.
+            foreach (string format in new[] { "image/png", "PNG" })
+            {
+                if (!data.GetDataPresent(format, false)) continue;
+                object value = data.GetData(format, false);
+                Stream input = value as Stream;
+                byte[] bytes = value as byte[];
+                if (input == null && bytes == null) continue;
+                using (var copy = new MemoryStream())
+                {
+                    if (bytes != null) copy.Write(bytes, 0, bytes.Length);
+                    else
+                    {
+                        if (input.CanSeek) input.Position = 0;
+                        input.CopyTo(copy);
+                    }
+                    if (copy.Length > 200L * 1024 * 1024) throw new IOException("Clipboard image exceeds the 200 MB safety limit.");
+                    copy.Position = 0;
+                    var decoder = BitmapDecoder.Create(copy, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+                    var frame = decoder.Frames[0];
+                    if ((long)frame.PixelWidth * frame.PixelHeight > 100000000) throw new IOException("Clipboard image exceeds the 100 megapixel safety limit.");
+                    return FromClipboard(frame, number);
+                }
+            }
+            var source = data.GetData(DataFormats.Bitmap, true) as BitmapSource;
+            return source == null ? null : FromClipboard(source, number);
         }
 
         public static LoadedImage FromClipboard(BitmapSource source, int number)

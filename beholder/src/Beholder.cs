@@ -13,9 +13,9 @@ using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Microsoft.Win32;
 
-[assembly: AssemblyTitle("Beholder")]
+[assembly: AssemblyTitle("Beholder v3")]
 [assembly: AssemblyDescription("A private, lightweight image comparison canvas")]
-[assembly: AssemblyVersion("1.0.1.0")]
+[assembly: AssemblyVersion("3.0.0.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
 
 namespace Beholder
@@ -42,6 +42,14 @@ namespace Beholder
         public bool PerspectiveEnabled { get; private set; }
         public bool IsometricEnabled { get; private set; }
         public double IsometricAngleDegrees { get; private set; }
+        public bool PitchEnabled { get; private set; }
+        public double PitchAngleDegrees { get; private set; }
+        public bool CubeEnabled { get; private set; }
+        public string CubeProjection { get { return PerspectiveEnabled ? "Vanishing" : PitchEnabled ? "Pitch" : IsometricEnabled ? "Isometric" : ""; } }
+        public readonly List<CubeInstance> Cubes = new List<CubeInstance>(new[] { new CubeInstance() });
+        public int SelectedCubeIndex { get; private set; }
+        public ImageTile SelectedTile { get { return selected; } }
+        public bool ShowGuidesOn(ImageTile tile) { return LinkViews || tile == selected; }
         public string LastMessage { get; private set; }
         public ImageTile FocusedTile { get; private set; }
         private readonly Dictionary<string, int> pending = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -55,7 +63,18 @@ namespace Beholder
         private readonly Button linkButton;
         private readonly Button monochromeButton;
         private readonly Button perspectiveButton;
-        private readonly Button isometricButton;
+        private readonly Border perspectiveBarHost = new Border();
+        public readonly WrapPanel PerspectiveBar = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        private readonly System.Windows.Controls.CheckBox vanishingCheck = new System.Windows.Controls.CheckBox { Content = "Vanishing points" };
+        private readonly System.Windows.Controls.CheckBox isoCheck = new System.Windows.Controls.CheckBox { Content = "Isometric grid" };
+        private readonly System.Windows.Controls.CheckBox pitchCheck = new System.Windows.Controls.CheckBox { Content = "Pitch grid" };
+        private readonly System.Windows.Controls.CheckBox cubeCheck = new System.Windows.Controls.CheckBox { Content = "Wireframe cube" };
+        private readonly Slider isoSlider = new Slider { Minimum = 5, Maximum = 60, TickFrequency = 1, TickPlacement = System.Windows.Controls.Primitives.TickPlacement.BottomRight, IsSnapToTickEnabled = false, SmallChange = 1, LargeChange = 1, Width = 150 };
+        private readonly TextBlock isoAngleLabel = new TextBlock { Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+        private readonly Slider pitchSlider = new Slider { Minimum = 15, Maximum = 90, TickFrequency = 5, IsSnapToTickEnabled = false, SmallChange = 1, LargeChange = 5, Width = 150 };
+        private readonly TextBlock pitchAngleLabel = new TextBlock { Foreground = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center };
+        private bool syncingIsoSlider;
+        private bool syncingPitchSlider;
         private int angleIndex = 0;
         private static readonly double[] AnglePresets = new[] { 26.565, 30 };
         private ImageTile selected;
@@ -74,7 +93,7 @@ namespace Beholder
 
         public BeholderWindow()
         {
-            Title = "Beholder";
+            Title = "Beholder v3";
             Width = 1280; Height = 820; MinWidth = 760; MinHeight = 460;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Background = Paint("#1A1E24"); Foreground = Text;
@@ -91,6 +110,7 @@ namespace Beholder
             };
             var root = new Grid();
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition());
             Content = root;
             var bar = new Grid { Margin = new Thickness(18, 10, 14, 10), MinHeight = 44 };
@@ -99,7 +119,7 @@ namespace Beholder
             Grid.SetRow(bar, 0); root.Children.Add(bar);
             var brand = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             brand.Children.Add(Eye(28, Accent));
-            brand.Children.Add(new TextBlock { Text = "Beholder", FontWeight = FontWeights.SemiBold, FontSize = 19, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+            brand.Children.Add(new TextBlock { Text = "Beholder v3", FontWeight = FontWeights.SemiBold, FontSize = 19, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
             Grid.SetColumn(brand, 0); bar.Children.Add(brand);
             var actions = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(12, 0, 0, 0) };
             Grid.SetColumn(actions, 1); bar.Children.Add(actions);
@@ -112,16 +132,72 @@ namespace Beholder
             actions.Children.Add(linkButton);
             monochromeButton = ActionButton("B/W", "Toggle black and white for every image (Ctrl+B)", async delegate { await SetMonochromeAsync(!Monochrome); });
             actions.Children.Add(monochromeButton);
-            perspectiveButton = ActionButton("Perspective", "Click image: add Z, then X, then Y vanishing points; drag to move; Delete removes selected point. Toggle preserves points (Ctrl+P).", delegate { SetPerspective(!PerspectiveEnabled); });
+            perspectiveButton = ActionButton("Perspective ▾", "Choose vanishing, isometric, pitch-grid, and cube overlays. The row below appears while open (Ctrl+P: vanishing; Ctrl+I: isometric).", delegate
+            {
+                perspectiveBarHost.Visibility = perspectiveBarHost.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+                if (perspectiveBarHost.Visibility == Visibility.Visible) SyncPerspectiveControls();
+            });
+            System.Windows.Automation.AutomationProperties.SetName(perspectiveButton, "Perspective options");
             actions.Children.Add(perspectiveButton);
-            isometricButton = ActionButton("Isometric", "Click cycles: off, 2:1 grid, 30 degree grid, off. Ctrl+I also toggles on/off.", delegate { CycleIsometric(); });
-            IsometricAngleDegrees = 26.565;
-            actions.Children.Add(isometricButton);
+            IsometricAngleDegrees = 26.565; PitchAngleDegrees = 35;
+            perspectiveBarHost.Background = Paint("#1A1E24");
+            perspectiveBarHost.BorderBrush = Paint("#3D4653");
+            perspectiveBarHost.BorderThickness = new Thickness(1);
+            perspectiveBarHost.CornerRadius = new CornerRadius(8);
+            perspectiveBarHost.Margin = new Thickness(12, 0, 12, 8);
+            perspectiveBarHost.Padding = new Thickness(10, 5, 10, 5);
+            perspectiveBarHost.Child = PerspectiveBar;
+            perspectiveBarHost.Visibility = Visibility.Collapsed;
+            Grid.SetRow(perspectiveBarHost, 1); root.Children.Add(perspectiveBarHost);
+            Func<System.Windows.Controls.CheckBox, string, string, System.Windows.Controls.CheckBox> barCheck = (box, hint, gesture) =>
+            {
+                box.Foreground = Text; box.FontSize = 12; box.Margin = new Thickness(6, 0, 16, 0);
+                box.VerticalAlignment = VerticalAlignment.Center; box.ToolTip = hint + (string.IsNullOrEmpty(gesture) ? "" : " (" + gesture + ")");
+                return box;
+            };
+            PerspectiveBar.Children.Add(barCheck(vanishingCheck, "Toggle vanishing-point construction guides", "Ctrl+P"));
+            PerspectiveBar.Children.Add(barCheck(isoCheck, "Toggle the isometric grid", "Ctrl+I"));
+            var isoStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
+            isoStack.Children.Add(isoAngleLabel); isoStack.Children.Add(isoSlider);
+            PerspectiveBar.Children.Add(isoStack);
+            PerspectiveBar.Children.Add(barCheck(pitchCheck, "Toggle the projective pitch grid", null));
+            var pitchStack = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
+            pitchStack.Children.Add(pitchAngleLabel); pitchStack.Children.Add(pitchSlider);
+            PerspectiveBar.Children.Add(pitchStack);
+            PerspectiveBar.Children.Add(barCheck(cubeCheck, "Show a transparent wireframe cube that follows the active perspective", null));
+            var addCube = ActionButton("+ Cube", "Add another wireframe cube. Drag its axis handles (red X, teal Y, blue Z) to move it and the white diamond to resize; click a cube to select it.", delegate { AddCube(); });
+            addCube.Height = 32; addCube.Margin = new Thickness(6, 0, 0, 0);
+            PerspectiveBar.Children.Add(addCube);
+            var hideOverlays = ActionButton("Hide all overlays", "Turn every perspective overlay off without closing the bar", delegate
+            {
+                SetCube(false); SetPitch(false); SetIsometric(false); SetPerspective(false);
+            });
+            hideOverlays.Height = 32; hideOverlays.Margin = new Thickness(6, 0, 0, 0);
+            PerspectiveBar.Children.Add(hideOverlays);
+            vanishingCheck.Checked += delegate { SetPerspective(true); };
+            vanishingCheck.Unchecked += delegate { SetPerspective(false); };
+            isoCheck.Checked += delegate { SetIsometric(true); };
+            isoCheck.Unchecked += delegate { SetIsometric(false); };
+            pitchCheck.Checked += delegate { SetPitch(true); };
+            pitchCheck.Unchecked += delegate { SetPitch(false); };
+            cubeCheck.Checked += delegate { SetCube(true); };
+            cubeCheck.Unchecked += delegate { SetCube(false); };
+            isoSlider.ValueChanged += delegate
+            {
+                if (syncingIsoSlider) return;
+                double value = isoSlider.Value, target = Math.Round(value);
+                if (Math.Abs(value - 26.565) < 1.2) target = 26.565;
+                else if (Math.Abs(value - 30) < 1.2) target = 30;
+                SetIsometric(true);
+                SetIsometricAngle(target);
+            };
+            pitchSlider.ValueChanged += delegate { if (syncingPitchSlider) return; SetPitchAngle(pitchSlider.Value); };
+            SyncPerspectiveControls();
             actions.Children.Add(ActionButton("Clear", "Remove all tiles, never delete original files (Ctrl+Shift+X)", delegate { ClearImages(); }));
             canvasBorder.Margin = new Thickness(12, 0, 12, 8);
             canvasBorder.Background = canvasBackground;
             canvasBorder.BorderBrush = Paint("#303740"); canvasBorder.BorderThickness = new Thickness(1); canvasBorder.CornerRadius = new CornerRadius(10);
-            Grid.SetRow(canvasBorder, 1); root.Children.Add(canvasBorder);
+            Grid.SetRow(canvasBorder, 2); root.Children.Add(canvasBorder);
             canvasBorder.Child = canvasHost;
             Workspace.Margin = new Thickness(10);
             Workspace.Background = Brushes.Transparent;
@@ -266,7 +342,7 @@ namespace Beholder
         public void Select(ImageTile tile)
         {
             selected = tile;
-            foreach (var t in Tiles) t.SetSelected(t == selected);
+            foreach (var t in Tiles) { t.SetSelected(t == selected); t.RefreshPerspective(); }
         }
 
         public void Remove(ImageTile tile)
@@ -280,6 +356,7 @@ namespace Beholder
         public void ClearImages()
         {
             importGeneration++; Tiles.Clear(); Workspace.Children.Clear(); pending.Clear(); selected = null; FocusedTile = null;
+            Cubes.Clear(); Cubes.Add(new CubeInstance()); SelectedCubeIndex = 0;
             UpdateEmptyState(); Reflow(); SetStatus("Canvas cleared. Original files were not changed.");
         }
 
@@ -292,13 +369,15 @@ namespace Beholder
         {
             LinkViews = enabled; linkButton.Content = enabled ? "Linked" : "Link views"; linkButton.BorderBrush = enabled ? Accent : Paint("#3D4653");
             if (enabled && selected != null) { ViewChanged(selected); PerspectiveChanged(selected); }
+            foreach (var tile in Tiles) tile.RefreshPerspective();
         }
 
         public void SetIsometric(bool enabled)
         {
+            bool wasEnabled = IsometricEnabled;
+            if (enabled && !wasEnabled) { IsometricAngleDegrees = 26.565; angleIndex = 0; }
             IsometricEnabled = enabled;
-            isometricButton.Content = IsometricLabel(enabled ? IsometricAngleDegrees : 0);
-            isometricButton.BorderBrush = enabled ? Accent : Paint("#3D4653");
+            SyncPerspectiveControls();
             foreach (var tile in Tiles) tile.RefreshPerspective();
         }
 
@@ -306,7 +385,7 @@ namespace Beholder
         {
             if (!IsometricEnabled) { SetIsometric(true); return; }
             angleIndex = (angleIndex + 1) % AnglePresets.Length;
-            if (angleIndex == 0) { SetIsometric(false); IsometricAngleDegrees = AnglePresets[0]; return; }
+            if (angleIndex == 0) { SetIsometricAngle(AnglePresets[0]); SetIsometric(false); return; }
             SetIsometricAngle(AnglePresets[angleIndex]);
         }
 
@@ -314,22 +393,105 @@ namespace Beholder
         {
             if (double.IsNaN(degrees) || double.IsInfinity(degrees) || degrees < 5 || degrees > 85) return;
             IsometricAngleDegrees = degrees;
-            if (IsometricEnabled) isometricButton.Content = IsometricLabel(degrees);
+            angleIndex = Math.Abs(degrees - 30) < 0.01 ? 1 : 0;
+            SyncPerspectiveControls();
             foreach (var tile in Tiles) tile.RefreshPerspective();
         }
 
-        private static string IsometricLabel(double degrees)
+        public void SetCube(bool enabled)
         {
-            if (degrees <= 0) return "Isometric";
-            return "Isometric \u00b7 " + (Math.Abs(degrees - 26.565) < 0.01 ? "2:1" : degrees.ToString("0") + (char)176);
+            bool wasEnabled = CubeEnabled;
+            if (enabled && !wasEnabled)
+            {
+                // Re-enabling always restores the default single cube, so a cube that
+                // was dragged far off the plane comes back into view.
+                Cubes.Clear(); Cubes.Add(new CubeInstance()); SelectedCubeIndex = 0;
+            }
+            if (enabled && CubeProjection == "") SetIsometric(true);
+            CubeEnabled = enabled;
+            SyncPerspectiveControls();
+            foreach (var tile in Tiles) tile.RefreshPerspective();
+        }
+
+        public void SetPitch(bool enabled)
+        {
+            bool wasEnabled = PitchEnabled;
+            if (enabled && !wasEnabled) PitchAngleDegrees = 35;
+            PitchEnabled = enabled;
+            SyncPerspectiveControls();
+            foreach (var tile in Tiles) tile.RefreshPerspective();
+        }
+
+        public void SetPitchAngle(double degrees)
+        {
+            if (double.IsNaN(degrees) || double.IsInfinity(degrees) || degrees < 15 || degrees > 90) return;
+            PitchAngleDegrees = degrees;
+            SyncPerspectiveControls();
+            foreach (var tile in Tiles) tile.RefreshPerspective();
+        }
+
+        public void AddCube()
+        {
+            CubeInstance last = Cubes.Count > 0 ? Cubes[Cubes.Count - 1] : new CubeInstance();
+            Cubes.Add(new CubeInstance(Math.Min(60, last.X + 4), Math.Min(60, last.Y + 1), last.Z, 1));
+            SelectedCubeIndex = Cubes.Count - 1;
+            foreach (var tile in Tiles) tile.RefreshPerspective();
+        }
+
+        public void SelectCube(int index)
+        {
+            SelectedCubeIndex = index >= 0 && index < Cubes.Count ? index : -1;
+            foreach (var tile in Tiles) tile.RefreshPerspective();
+        }
+
+        public void MoveCube(int index, double dx, double dy, double dz)
+        {
+            if (index < 0 || index >= Cubes.Count || double.IsNaN(dx) || double.IsNaN(dy) || double.IsNaN(dz) || double.IsInfinity(dx) || double.IsInfinity(dy) || double.IsInfinity(dz)) return;
+            CubeInstance cube = Cubes[index];
+            cube.X = Math.Max(-60, Math.Min(60, cube.X + dx));
+            cube.Y = Math.Max(-20, Math.Min(60, cube.Y + dy));
+            cube.Z = Math.Max(-60, Math.Min(60, cube.Z + dz));
+            foreach (var tile in Tiles) tile.RefreshPerspective();
+        }
+
+        public void ResizeCube(int index, double factor)
+        {
+            if (index < 0 || index >= Cubes.Count || double.IsNaN(factor) || double.IsInfinity(factor) || factor <= 0) return;
+            Cubes[index].Size = Math.Max(0.25, Math.Min(5.0, Cubes[index].Size * factor));
+            foreach (var tile in Tiles) tile.RefreshPerspective();
         }
 
         public void SetPerspective(bool enabled)
         {
+            bool wasEnabled = PerspectiveEnabled;
+            if (enabled && !wasEnabled) foreach (var tile in Tiles) tile.ReplacePerspectivePoints(new Point[0]);
             PerspectiveEnabled = enabled;
-            perspectiveButton.Content = enabled ? "Perspective on" : "Perspective";
-            perspectiveButton.BorderBrush = enabled ? Accent : Paint("#3D4653");
+            SyncPerspectiveControls();
             foreach (var tile in Tiles) { tile.EndPerspectiveGesture(); tile.RefreshPerspective(); }
+        }
+
+        private void SyncPerspectiveControls()
+        {
+            perspectiveButton.Content = "Perspective ▾";
+            perspectiveButton.BorderBrush = (PerspectiveEnabled || IsometricEnabled || PitchEnabled || CubeEnabled) ? Accent : Paint("#3D4653");
+            vanishingCheck.IsChecked = PerspectiveEnabled;
+            isoCheck.IsChecked = IsometricEnabled;
+            pitchCheck.IsChecked = PitchEnabled;
+            cubeCheck.IsChecked = CubeEnabled;
+            isoAngleLabel.Text = "Isometric angle · " + (Math.Abs(IsometricAngleDegrees - 26.565) < 0.01 ? "2:1" : IsometricAngleDegrees.ToString("0") + (char)176);
+            pitchAngleLabel.Text = "Pitch angle · " + PitchAngleDegrees.ToString("0") + (char)176;
+            if (Math.Abs(isoSlider.Value - IsometricAngleDegrees) > 0.01)
+            {
+                syncingIsoSlider = true;
+                try { isoSlider.Value = Math.Max(5, Math.Min(60, IsometricAngleDegrees)); }
+                finally { syncingIsoSlider = false; }
+            }
+            if (Math.Abs(pitchSlider.Value - PitchAngleDegrees) > 0.01)
+            {
+                syncingPitchSlider = true;
+                try { pitchSlider.Value = Math.Max(15, Math.Min(90, PitchAngleDegrees)); }
+                finally { syncingPitchSlider = false; }
+            }
         }
 
         private async void ApplyCurrentFilter(ImageTile tile)
@@ -444,6 +606,7 @@ namespace Beholder
 
         private void OnKey(object sender, KeyEventArgs e)
         {
+            if (perspectiveBarHost.Visibility == Visibility.Visible && e.Key == Key.Escape) { perspectiveBarHost.Visibility = Visibility.Collapsed; perspectiveButton.Focus(); e.Handled = true; return; }
             bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0;
             if (ctrl && e.Key == Key.S) { PickSave(); e.Handled = true; }
             else if (ctrl && e.Key == Key.O) { OpenFromKey(); e.Handled = true; }
@@ -456,7 +619,7 @@ namespace Beholder
             else if (ctrl && e.Key == Key.X && (Keyboard.Modifiers & ModifierKeys.Shift) != 0) { ClearImages(); e.Handled = true; }
             else if (e.Key == Key.Delete && selected != null)
             {
-                if (PerspectiveEnabled) selected.DeleteSelectedPerspectivePoint();
+                if (PerspectiveEnabled) selected.DeleteLastClickedPerspectivePoint();
                 else Remove(selected);
                 e.Handled = true;
             }
@@ -473,8 +636,12 @@ namespace Beholder
             try
             {
                 if (Clipboard.ContainsFileDropList()) await AddFilesAsync(Clipboard.GetFileDropList().Cast<string>());
-                else if (Clipboard.ContainsImage()) { AddImage(ImageLoader.FromClipboard(Clipboard.GetImage(), ++clipboardNumber)); SetStatus("Pasted image. Clipboard pixels stay local."); }
-                else SetStatus("Clipboard contains no image or image files.");
+                else
+                {
+                    var item = ImageLoader.FromClipboardData(Clipboard.GetDataObject(), ++clipboardNumber);
+                    if (item != null) { AddImage(item); SetStatus("Pasted image. Clipboard pixels stay local."); }
+                    else SetStatus("Clipboard contains no image or image files.");
+                }
             }
             catch (ExternalException) { SetStatus("Clipboard is busy. Try again.", true); }
         }
@@ -497,6 +664,9 @@ namespace Beholder
         private int selectedPerspectivePoint = -1;
         private bool draggingPerspectivePoint;
         private readonly TileOverlay perspectiveOverlay;
+        private int cubeDragIndex = -1;
+        private string cubeDragHandle;
+        private Point cubeDragStart;
         public IList<Point> PerspectivePoints { get { return perspectivePoints.AsReadOnly(); } }
         public int SelectedPerspectivePoint { get { return selectedPerspectivePoint; } }
         public Rect ImageBounds { get { return CompositeExporter.ImageBounds(new Size(Viewport.ActualWidth, Viewport.ActualHeight), Item.Aspect, Zoom, NormalizedPan); } }
@@ -531,6 +701,16 @@ namespace Beholder
             perspectivePoints.RemoveAt(selectedPerspectivePoint); selectedPerspectivePoint = -1;
             EndPerspectiveGesture(); RefreshPerspective(); owner.PerspectiveChanged(this);
         }
+        // Delete should remove the point the user last clicked; when nothing is
+        // selected it falls back to the most recently placed point.
+        public void DeleteLastClickedPerspectivePoint()
+        {
+            if (perspectivePoints.Count == 0) return;
+            int index = selectedPerspectivePoint >= 0 && selectedPerspectivePoint < perspectivePoints.Count
+                ? selectedPerspectivePoint : perspectivePoints.Count - 1;
+            perspectivePoints.RemoveAt(index); selectedPerspectivePoint = -1;
+            EndPerspectiveGesture(); RefreshPerspective(); owner.PerspectiveChanged(this);
+        }
         internal void ReplacePerspectivePoints(IEnumerable<Point> points)
         {
             var snapshot = points.ToArray();
@@ -563,6 +743,53 @@ namespace Beholder
             draggingPerspectivePoint = false; panning = false;
             if (Viewport.IsMouseCaptured) Viewport.ReleaseMouseCapture();
             Viewport.Cursor = owner.PerspectiveEnabled ? Cursors.Cross : Cursors.Hand;
+        }
+        public bool BeginCubeGesture(Point at)
+        {
+            if (!owner.CubeEnabled) return false;
+            string mode = owner.CubeProjection;
+            if (mode != "Pitch" && mode != "Isometric" && mode != "Vanishing") return false;
+            double angle = mode == "Isometric" ? owner.IsometricAngleDegrees : owner.PitchAngleDegrees;
+            int index = owner.SelectedCubeIndex;
+            if (index >= 0 && index < owner.Cubes.Count)
+            {
+                string handle = CubeInteraction.HandleAt(ImageBounds, mode, angle, PerspectivePoints, owner.Cubes[index], at, 10);
+                if (handle != null)
+                {
+                    cubeDragIndex = index; cubeDragHandle = handle; cubeDragStart = at;
+                    Viewport.CaptureMouse(); RefreshPerspective(); return true;
+                }
+            }
+            int body = CubeInteraction.SelectAt(ImageBounds, mode, angle, PerspectivePoints, owner.Cubes, at, 16);
+            if (body >= 0) { owner.SelectCube(body); RefreshPerspective(); return true; }
+            return false;
+        }
+        public void UpdateCubeGesture(Point at)
+        {
+            if (cubeDragIndex < 0 || cubeDragHandle == null) return;
+            string mode = owner.CubeProjection;
+            double angle = mode == "Isometric" ? owner.IsometricAngleDegrees : owner.PitchAngleDegrees;
+            Vector delta = at - cubeDragStart;
+            if (cubeDragHandle == "Resize")
+            {
+                double cells = CubeInteraction.GridDelta(ImageBounds, mode, angle, PerspectivePoints, owner.Cubes[cubeDragIndex], delta, "X");
+                owner.ResizeCube(cubeDragIndex, 1 + cells * 0.25);
+            }
+            else
+            {
+                double dx = cubeDragHandle == "X" ? CubeInteraction.GridDelta(ImageBounds, mode, angle, PerspectivePoints, owner.Cubes[cubeDragIndex], delta, "X") : 0;
+                double dy = cubeDragHandle == "Y" ? CubeInteraction.GridDelta(ImageBounds, mode, angle, PerspectivePoints, owner.Cubes[cubeDragIndex], delta, "Y") : 0;
+                double dz = cubeDragHandle == "Z" ? CubeInteraction.GridDelta(ImageBounds, mode, angle, PerspectivePoints, owner.Cubes[cubeDragIndex], delta, "Z") : 0;
+                owner.MoveCube(cubeDragIndex, dx, dy, dz);
+            }
+            // Apply only the new pointer movement. Reapplying the displacement from
+            // mouse-down on every event compounds the offset and overshoots.
+            cubeDragStart = at;
+        }
+        public void EndCubeGesture()
+        {
+            if (cubeDragIndex >= 0 && Viewport.IsMouseCaptured) Viewport.ReleaseMouseCapture();
+            cubeDragIndex = -1; cubeDragHandle = null;
         }
         public void RefreshPerspective() { perspectiveOverlay.InvalidateVisual(); Viewport.Cursor = owner.PerspectiveEnabled ? Cursors.Cross : Cursors.Hand; }
 
@@ -609,6 +836,7 @@ namespace Beholder
             Viewport.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e)
             {
                 owner.Select(this); owner.Focus();
+                if (e.ClickCount == 1 && BeginCubeGesture(e.GetPosition(Viewport))) { e.Handled = true; return; }
                 if (owner.PerspectiveEnabled)
                 {
                     if (e.ClickCount == 1 && BeginPerspectiveGesture(e.GetPosition(Viewport))) Viewport.CaptureMouse();
@@ -619,6 +847,11 @@ namespace Beholder
             };
             Viewport.MouseMove += delegate(object sender, MouseEventArgs e)
             {
+                if (cubeDragIndex >= 0)
+                {
+                    if (e.LeftButton == MouseButtonState.Pressed) UpdateCubeGesture(e.GetPosition(Viewport));
+                    e.Handled = true; return;
+                }
                 if (draggingPerspectivePoint)
                 {
                     if (e.LeftButton == MouseButtonState.Pressed) UpdatePerspectiveGesture(e.GetPosition(Viewport));
@@ -628,8 +861,8 @@ namespace Beholder
                 Vector delta = e.GetPosition(Viewport) - dragStart;
                 SetView(Zoom, initialPan.X + delta.X, initialPan.Y + delta.Y, true);
             };
-            Viewport.MouseLeftButtonUp += delegate { EndPerspectiveGesture(); };
-            Viewport.LostMouseCapture += delegate { draggingPerspectivePoint = false; panning = false; Viewport.Cursor = owner.PerspectiveEnabled ? Cursors.Cross : Cursors.Hand; };
+            Viewport.MouseLeftButtonUp += delegate { EndCubeGesture(); EndPerspectiveGesture(); };
+            Viewport.LostMouseCapture += delegate { EndCubeGesture(); draggingPerspectivePoint = false; panning = false; Viewport.Cursor = owner.PerspectiveEnabled ? Cursors.Cross : Cursors.Hand; };
             Viewport.SizeChanged += delegate { SetView(Zoom, PanX, PanY, false); };
             header.MouseLeftButtonDown += delegate(object sender, MouseButtonEventArgs e) { owner.Select(this); headerStart = e.GetPosition(header); headerPressed = true; };
             header.MouseLeftButtonUp += delegate { headerPressed = false; };
