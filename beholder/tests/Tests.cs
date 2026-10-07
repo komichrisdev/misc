@@ -522,8 +522,8 @@ namespace Beholder
                 var iso = ((System.Collections.IEnumerable)build.Invoke(null, new object[] { bounds, "Isometric", 26.565, points })).Cast<PerspectiveLine>().ToArray();
                 var pitch = ((System.Collections.IEnumerable)build.Invoke(null, new object[] { bounds, "Pitch", 35.0, points })).Cast<PerspectiveLine>().ToArray();
                 Check(iso.Length == 12 && pitch.Length == 12 && !iso[0].A.Equals(pitch[0].A), "Cube lacks 12 mode-dependent edges");
-                Check(iso.All(edge => Math.Abs(edge.Width - 3.0) < 0.001) && pitch.All(edge => Math.Abs(edge.Width - 3.0) < 0.001),
-                    "Wireframe cube strokes are not 3x the grid width");
+                Check(iso.All(edge => Math.Abs(edge.Width - 2.55) < 0.001) && pitch.All(edge => Math.Abs(edge.Width - 2.55) < 0.001),
+                    "Wireframe cube strokes are not 1.5x the grid width");
                 for (int count = 1; count <= 3; count++)
                 {
                     var cube = ((System.Collections.IEnumerable)build.Invoke(null, new object[] { bounds, "Vanishing", 35.0, points.Take(count).ToArray() })).Cast<PerspectiveLine>().ToArray();
@@ -561,6 +561,37 @@ namespace Beholder
                 }
                 finally { cubeToggle.Invoke(window, new object[] { false }); window.SetPerspective(false); window.SetPitch(false); window.SetIsometric(false); window.ClearImages(); }
             });
+            await Case("wireframe cube fills faces with translucent green", () => Sync(delegate
+            {
+                var bounds = new Rect(0, 0, 400, 300);
+                var points = new Point[0];
+                var cubes = new List<CubeInstance>(new[] { new CubeInstance() });
+                Brush green = BeholderWindow.Paint("#A030C868");
+                Func<DrawingVisual> cubeVisual = delegate
+                {
+                    var visual = new DrawingVisual();
+                    using (var dc = visual.RenderOpen())
+                    {
+                        dc.DrawRectangle(Brushes.White, null, bounds);
+                        Drawing.Cube(dc, bounds, "Isometric", 26.565, points, cubes, 0, false);
+                    }
+                    return visual;
+                };
+                Func<DrawingVisual> edgeVisual = delegate
+                {
+                    var visual = new DrawingVisual();
+                    using (var dc = visual.RenderOpen())
+                    {
+                        dc.DrawRectangle(Brushes.White, null, bounds);
+                        foreach (var edge in CubeGeometry.Build(bounds, "Isometric", 26.565, points, cubes[0]))
+                            dc.DrawLine(new Pen(green, edge.Width), edge.A, edge.B);
+                    }
+                    return visual;
+                };
+                int filled = GreenPixels(cubeVisual(), 400, 300);
+                int edgesOnly = GreenPixels(edgeVisual(), 400, 300);
+                Check(filled > edgesOnly * 1.6, "Cube faces are not filled with translucent green (filled=" + filled + ", edgesOnly=" + edgesOnly + ")");
+            }));
             await Case("cube instances scale, offset, and expose xyz grab handles", () => Sync(delegate
             {
                 var bounds = new Rect(0, 0, 800, 500);
@@ -848,6 +879,22 @@ namespace Beholder
             var bytes = new byte[width * height * 4];
             for (int i = 0; i < bytes.Length; i += 4) { bytes[i] = 90; bytes[i + 1] = 160; bytes[i + 2] = 210; bytes[i + 3] = transparent ? (byte)0 : (byte)255; }
             return BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, bytes, width * 4);
+        }
+        private static int GreenPixels(DrawingVisual visual, int width, int height)
+        {
+            var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(visual); var converted = new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+            var row = new byte[converted.PixelWidth * 4]; int green = 0;
+            for (int y = 0; y < converted.PixelHeight; y++)
+            {
+                converted.CopyPixels(new Int32Rect(0, y, converted.PixelWidth, 1), row, row.Length, 0);
+                for (int x = 0; x < converted.PixelWidth; x++)
+                {
+                    int b = row[x * 4], g = row[x * 4 + 1], rr = row[x * 4 + 2];
+                    if (g > rr + 8 && g > b + 8) green++;
+                }
+            }
+            return green;
         }
         private static void CreateFixtures()
         {

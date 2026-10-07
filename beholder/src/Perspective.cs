@@ -309,10 +309,10 @@ namespace Beholder
                     PerspectiveLine kb = PerspectiveGeometry.ClipSegment(b, c, image);
                     PerspectiveLine kc = PerspectiveGeometry.ClipSegment(c, d, image);
                     PerspectiveLine kd = PerspectiveGeometry.ClipSegment(d, a, image);
-                    if (ka != null) edges.Add(new PerspectiveLine("X", ka.A, ka.B, 3.0));
-                    if (kb != null) edges.Add(new PerspectiveLine("Y", kb.A, kb.B, 3.0));
-                    if (kc != null) edges.Add(new PerspectiveLine("X", kc.A, kc.B, 3.0));
-                    if (kd != null) edges.Add(new PerspectiveLine("Y", kd.A, kd.B, 3.0));
+                    if (ka != null) edges.Add(new PerspectiveLine("X", ka.A, ka.B, 2.55));
+                    if (kb != null) edges.Add(new PerspectiveLine("Y", kb.A, kb.B, 2.55));
+                    if (kc != null) edges.Add(new PerspectiveLine("X", kc.A, kc.B, 2.55));
+                    if (kd != null) edges.Add(new PerspectiveLine("Y", kd.A, kd.B, 2.55));
                     return edges;
                 }
             }
@@ -376,7 +376,7 @@ namespace Beholder
                     if ((bits & mask) != 0) continue;
                     if ((corners[bits] - corners[bits | mask]).Length < 0.01) continue;
                     PerspectiveLine segment = PerspectiveGeometry.ClipSegment(corners[bits], corners[bits | mask], image);
-                    if (segment != null) edges.Add(new PerspectiveLine(names[axis], segment.A, segment.B, 3.0));
+                    if (segment != null) edges.Add(new PerspectiveLine(names[axis], segment.A, segment.B, 2.55));
                 }
             return edges;
         }
@@ -581,10 +581,28 @@ namespace Beholder
         public static void Cube(DrawingContext dc, Rect image, string mode, double degrees, IEnumerable<Point> points, IList<CubeInstance> cubes, int selectedIndex, bool interactive)
         {
             Brush green = BeholderWindow.Paint("#A030C868");
+            Brush fill = BeholderWindow.Paint("#2E30C868");
             if (cubes == null || cubes.Count == 0) return;
             for (int i = 0; i < cubes.Count; i++)
-                foreach (var edge in CubeGeometry.Build(image, mode, degrees, points, cubes[i]))
+            {
+                CubeInstance cube = cubes[i];
+                Point[] cs = CubeGeometry.Corners(image, mode, degrees, points, cube);
+                if (mode == "Pitch" && degrees >= 89.5)
+                {
+                    dc.DrawGeometry(fill, null, Face(cs[0], cs[1], cs[3], cs[2]));
+                }
+                else
+                {
+                    dc.DrawGeometry(fill, null, Face(cs[0], cs[2], cs[6], cs[4]));
+                    dc.DrawGeometry(fill, null, Face(cs[1], cs[3], cs[7], cs[5]));
+                    dc.DrawGeometry(fill, null, Face(cs[0], cs[1], cs[5], cs[4]));
+                    dc.DrawGeometry(fill, null, Face(cs[2], cs[3], cs[7], cs[6]));
+                    dc.DrawGeometry(fill, null, Face(cs[0], cs[1], cs[3], cs[2]));
+                    dc.DrawGeometry(fill, null, Face(cs[4], cs[5], cs[7], cs[6]));
+                }
+                foreach (var edge in CubeGeometry.Build(image, mode, degrees, points, cube))
                     dc.DrawLine(new Pen(green, edge.Width), edge.A, edge.B);
+            }
             if (!interactive || selectedIndex < 0 || selectedIndex >= cubes.Count) return;
             Point[] corners = CubeGeometry.Corners(image, mode, degrees, points, cubes[selectedIndex]);
             if (mode == "Pitch" && degrees >= 89.5)
@@ -600,6 +618,19 @@ namespace Beholder
                 DrawHandle(dc, corners[4], AxisColor("Z", 1));
                 DrawResizeHandle(dc, corners[7]);
             }
+        }
+
+        private static Geometry Face(Point a, Point b, Point c, Point d)
+        {
+            var geometry = new StreamGeometry();
+            using (var context = geometry.Open())
+            {
+                context.BeginFigure(a, true, true);
+                context.LineTo(b, true, false);
+                context.LineTo(c, true, false);
+                context.LineTo(d, true, false);
+            }
+            geometry.Freeze(); return geometry;
         }
 
         private static void DrawHandle(DrawingContext dc, Point at, Brush fill)
